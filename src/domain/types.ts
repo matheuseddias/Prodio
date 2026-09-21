@@ -12,6 +12,41 @@ export interface Tenant {
   diasUteisMes: number
   margemProjecao: number // 0.10
   diasCobertura: number
+  margemAlvoPadrao: number // 0.20, usada na precificação
+  exigirProjecaoParaImprimir: boolean
+  perfisEtiqueta: LabelProfile[]
+}
+
+// Perfil de etiqueta por família: quais etiquetas saem para cada peça.
+export interface LabelProfile {
+  familia: string
+  prefixo: string
+  tipos: LabelKind[] // etiquetas geradas por peça
+  unidadesPorCaixa: number
+  instrucaoMontagem?: string // texto da etiqueta de processo, quando existir
+}
+export type LabelKind = 'produto' | 'montagem' | 'caixa'
+
+// Canal de venda configurável pelo cliente (precificação).
+export interface FaixaFrete {
+  ateKg: number
+  valor: number
+}
+export interface Channel {
+  id: Id
+  nome: string
+  preset?: 'mercadolivre' | 'shopee' | 'amazon' | 'tiktok' | 'magalu' | 'loja' | 'atacado'
+  ativo: boolean
+  comissaoPct: number
+  taxaFixa: number
+  taxaFixaAbaixoDe?: number // aplica taxa fixa só se preço < valor
+  freteVendedor: FaixaFrete[] // custo de envio pago pelo vendedor por faixa de peso
+  freteGratisAcimaDe?: number // preço a partir do qual o vendedor paga o frete
+  impostoVendaPct: number
+  adsPct: number
+  parcelamentoPct: number
+  outrosPct: number
+  observacao?: string
 }
 
 export interface Location {
@@ -38,6 +73,9 @@ export interface Product {
   aliases: string[] // SKUs comerciais
   temFicha: boolean
   custoFicha?: number
+  pesoKg?: number
+  pesoCubadoKg?: number
+  precoVenda?: Partial<Record<Id, number>> // preço praticado por canal
 }
 
 export interface Material {
@@ -206,6 +244,7 @@ export interface Connector {
     webhooks: boolean
     catalogo: boolean
     pushEstoque: boolean
+    pushCatalogo: boolean // enviar produtos do Prodio para o ERP/hub
     nfeCompra: boolean
   }
 }

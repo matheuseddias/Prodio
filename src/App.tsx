@@ -19,6 +19,7 @@ const Produtos = lazy(() => import('./pages/cadastros/Produtos'))
 const Fichas = lazy(() => import('./pages/cadastros/Fichas'))
 const Insumos = lazy(() => import('./pages/cadastros/Insumos'))
 const Fornecedores = lazy(() => import('./pages/cadastros/Fornecedores'))
+const Precificacao = lazy(() => import('./pages/comercial/Precificacao'))
 const Conectores = lazy(() => import('./pages/sistema/Conectores'))
 const Configuracoes = lazy(() => import('./pages/sistema/Configuracoes'))
 const ChaoPin = lazy(() => import('./pages/chao/Pin'))
@@ -56,6 +57,7 @@ export default function App() {
                 <Route path="/cadastros/fichas" element={<Fichas />} />
                 <Route path="/cadastros/insumos" element={<Insumos />} />
                 <Route path="/cadastros/fornecedores" element={<Fornecedores />} />
+                <Route path="/precificacao" element={<Precificacao />} />
                 <Route path="/conectores" element={<Conectores />} />
                 <Route path="/configuracoes" element={<Configuracoes />} />
               </Route>

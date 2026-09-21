@@ -11,6 +11,7 @@ import {
   Truck,
   Users,
   BookOpen,
+  BadgeDollarSign,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -52,6 +53,10 @@ export const NAV: NavGroup[] = [
       { to: '/cadastros/insumos', label: 'Insumos', icon: Boxes },
       { to: '/cadastros/fornecedores', label: 'Fornecedores', icon: Users },
     ],
+  },
+  {
+    label: 'Comercial',
+    items: [{ to: '/precificacao', label: 'Precificação por canal', icon: BadgeDollarSign }],
   },
   {
     label: 'Sistema',

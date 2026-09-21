@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 import * as mock from './mock'
 import type {
   Bom,
+  Channel,
   Connector,
   DailyPlanLine,
   Device,
@@ -36,6 +37,7 @@ export interface State {
   members: Member[]
   devices: Device[]
   notifications: Notification[]
+  channels: Channel[]
 }
 
 export type ScanResult =
@@ -62,6 +64,13 @@ interface Actions {
   upsertMember: (m: Member) => void
   upsertDevice: (d: Device) => void
   setTenant: (t: Tenant) => void
+  upsertChannel: (c: Channel) => void
+  removeChannel: (id: string) => void
+  setPrecoVenda: (productId: string, channelId: string, preco: number | undefined) => void
+  annulLabel: (serial: string) => void
+  addNfe: (n: NfeInbound) => void
+  removeMember: (id: string) => void
+  removeDevice: (id: string) => void
 }
 
 const StoreContext = createContext<(State & Actions) | null>(null)
@@ -83,6 +92,7 @@ const initial: State = {
   members: mock.members,
   devices: mock.devices,
   notifications: mock.notifications,
+  channels: mock.channels,
 }
 
 const uid = () => Math.random().toString(36).slice(2, 10)
@@ -162,7 +172,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const p = prev.products.find((x) => x.id === productId)!
       const dia = new Date().toISOString().slice(0, 10)
       const diaCompacto = dia.replace(/-/g, '').slice(2)
-      const prefix = p.familia === 'Espelho' ? 'EH' : 'ED'
+      const perfil = prev.tenant.perfisEtiqueta.find((x) => x.familia === p.familia)
+      const prefix = perfil?.prefixo ?? 'PR'
+      const porCaixa = perfil?.unidadesPorCaixa ?? 6
       const seqInicial = prev.labels.filter((l) => l.productId === productId && l.dia === dia).length
       for (let i = 1; i <= qtd; i++) {
         const seq = seqInicial + i
@@ -170,7 +182,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           serial: `${prefix}${p.sku}${diaCompacto}${String(seq).padStart(4, '0')}`,
           productId,
           tipo,
-          quantidade: tipo === 'caixa' ? 6 : 1,
+          quantidade: tipo === 'caixa' ? porCaixa : 1,
           status: 'impressa',
           dia,
           seq,
@@ -263,6 +275,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const markNotification = useCallback<Actions['markNotification']>((id) => setS((prev) => ({ ...prev, notifications: prev.notifications.map((n) => (n.id === id ? { ...n, lida: true } : n)) })), [])
   const retryOutbox = useCallback<Actions['retryOutbox']>((id) => setS((prev) => ({ ...prev, outbox: prev.outbox.map((o) => (o.id === id ? { ...o, status: 'aplicado', erro: undefined } : o)) })), [])
 
+  const upsertChannel = useCallback<Actions['upsertChannel']>((c) => setS((prev) => ({ ...prev, channels: upsert(prev.channels, c) })), [])
+  const removeChannel = useCallback<Actions['removeChannel']>((id) => setS((prev) => ({ ...prev, channels: prev.channels.filter((c) => c.id !== id) })), [])
+  const setPrecoVenda = useCallback<Actions['setPrecoVenda']>((productId, channelId, preco) =>
+    setS((prev) => ({
+      ...prev,
+      products: prev.products.map((p) => (p.id === productId ? { ...p, precoVenda: { ...(p.precoVenda ?? {}), [channelId]: preco } } : p)),
+    })), [])
+  const annulLabel = useCallback<Actions['annulLabel']>((serial) =>
+    setS((prev) => {
+      const label = prev.labels.find((l) => l.serial === serial)
+      if (!label || label.status === 'anulada') return prev
+      const dailyPlan = prev.dailyPlan.map((l) => (l.productId === label.productId ? { ...l, impresso: Math.max(0, l.impresso - 1) } : l))
+      return { ...prev, labels: prev.labels.map((l) => (l.serial === serial ? { ...l, status: 'anulada' as const } : l)), dailyPlan }
+    }), [])
+  const addNfe = useCallback<Actions['addNfe']>((n) => setS((prev) => (prev.nfes.some((x) => x.chave === n.chave) ? prev : { ...prev, nfes: [n, ...prev.nfes] })), [])
+  const removeMember = useCallback<Actions['removeMember']>((id) => setS((prev) => ({ ...prev, members: prev.members.filter((m) => m.id !== id) })), [])
+  const removeDevice = useCallback<Actions['removeDevice']>((id) => setS((prev) => ({ ...prev, devices: prev.devices.filter((d) => d.id !== id) })), [])
+
   const value = useMemo(
     () => ({
       ...s,
@@ -285,8 +315,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       upsertMember,
       upsertDevice,
       setTenant,
+      upsertChannel,
+      removeChannel,
+      setPrecoVenda,
+      annulLabel,
+      addNfe,
+      removeMember,
+      removeDevice,
     }),
-    [s, registerScan, reverseScan, setProjetado, printLabels, addStockMove, upsertProduct, upsertMaterial, upsertSupplier, saveBom, createPurchaseOrder, updatePurchaseOrder, receiveNfe, updateNfe, markNotification, setConnector, retryOutbox, upsertMember, upsertDevice, setTenant],
+    [s, registerScan, reverseScan, setProjetado, printLabels, addStockMove, upsertProduct, upsertMaterial, upsertSupplier, saveBom, createPurchaseOrder, updatePurchaseOrder, receiveNfe, updateNfe, markNotification, setConnector, retryOutbox, upsertMember, upsertDevice, setTenant, upsertChannel, removeChannel, setPrecoVenda, annulLabel, addNfe, removeMember, removeDevice],
   )
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>

@@ -1,5 +1,6 @@
 import type {
   Bom,
+  Channel,
   Connector,
   DailyPlanLine,
   Device,
@@ -46,6 +47,14 @@ export const tenant: Tenant = {
   diasUteisMes: 22,
   margemProjecao: 0.1,
   diasCobertura: 15,
+  margemAlvoPadrao: 0.2,
+  exigirProjecaoParaImprimir: true,
+  perfisEtiqueta: [
+    { familia: 'Espelho', prefixo: 'EH', tipos: ['produto', 'montagem'], unidadesPorCaixa: 6, instrucaoMontagem: 'Fixar alça a 118 mm da borda · conferir lapidação' },
+    { familia: 'Mousepad', prefixo: 'ED', tipos: ['produto'], unidadesPorCaixa: 20 },
+    { familia: 'Bandeja', prefixo: 'EH', tipos: ['produto', 'caixa'], unidadesPorCaixa: 4 },
+    { familia: 'Mesa', prefixo: 'ED', tipos: ['produto'], unidadesPorCaixa: 10 },
+  ],
 }
 
 export const locations: Location[] = [
@@ -66,14 +75,14 @@ export const units: Unit[] = [
 ]
 
 export const products: Product[] = [
-  { id: 'p1', sku: 'TM000076', nome: 'Espelho Redondo Adnet 40cm', familia: 'Espelho', atributos: { cor: 'Preto', tamanho: '40cm' }, ean: '7898676461347', ncm: '7009.91.00', status: 'ativo', aliases: ['ED000130'], temFicha: true, custoFicha: 10.71 },
-  { id: 'p2', sku: 'TM000073', nome: 'Espelho Redondo Adnet 50cm', familia: 'Espelho', atributos: { cor: 'Preto', tamanho: '50cm' }, ean: '7898676463402', ncm: '7009.91.00', status: 'ativo', aliases: ['ED000127'], temFicha: true, custoFicha: 16.14 },
-  { id: 'p3', sku: 'TM000079', nome: 'Espelho Redondo Adnet 60cm', familia: 'Espelho', atributos: { cor: 'Preto', tamanho: '60cm' }, status: 'ativo', aliases: ['ED000215'], temFicha: true, custoFicha: 24.9 },
-  { id: 'p4', sku: 'TM000091', nome: 'Espelho Redondo Adnet 40cm', familia: 'Espelho', atributos: { cor: 'Caramelo', tamanho: '40cm' }, status: 'ativo', aliases: ['ED000240'], temFicha: true, custoFicha: 11.02 },
-  { id: 'p5', sku: 'ED000001', nome: 'Mouse Pad Desk Pad 90x40', familia: 'Mousepad', atributos: { cor: 'Preto', tamanho: '90x40' }, ean: '7898676460951', ncm: '5603.94.10', status: 'ativo', aliases: [], temFicha: true, custoFicha: 7.38 },
-  { id: 'p6', sku: 'ED000008', nome: 'Mouse Pad Desk Pad 90x40', familia: 'Mousepad', atributos: { cor: 'Caramelo', tamanho: '90x40' }, status: 'ativo', aliases: [], temFicha: true, custoFicha: 7.38 },
-  { id: 'p7', sku: 'ED000002', nome: 'Mouse Pad Desk Pad 90x40', familia: 'Mousepad', atributos: { cor: 'Grafite', tamanho: '90x40' }, status: 'ativo', aliases: [], temFicha: true, custoFicha: 7.37 },
-  { id: 'p8', sku: 'ED000010', nome: 'Mouse Pad 20x20', familia: 'Mousepad', atributos: { cor: 'Caramelo', tamanho: '20x20' }, status: 'ativo', aliases: [], temFicha: true, custoFicha: 0.82 },
+  { id: 'p1', sku: 'TM000076', nome: 'Espelho Redondo Adnet 40cm', familia: 'Espelho', atributos: { cor: 'Preto', tamanho: '40cm' }, ean: '7898676461347', ncm: '7009.91.00', status: 'ativo', aliases: ['ED000130'], temFicha: true, custoFicha: 10.71, pesoKg: 1.9, pesoCubadoKg: 2.4, precoVenda: {ch1: 129.9, ch2: 119.9} },
+  { id: 'p2', sku: 'TM000073', nome: 'Espelho Redondo Adnet 50cm', familia: 'Espelho', atributos: { cor: 'Preto', tamanho: '50cm' }, ean: '7898676463402', ncm: '7009.91.00', status: 'ativo', aliases: ['ED000127'], temFicha: true, custoFicha: 16.14, pesoKg: 2.8, pesoCubadoKg: 3.6, precoVenda: {ch1: 169.9, ch2: 159.9} },
+  { id: 'p3', sku: 'TM000079', nome: 'Espelho Redondo Adnet 60cm', familia: 'Espelho', atributos: { cor: 'Preto', tamanho: '60cm' }, status: 'ativo', aliases: ['ED000215'], temFicha: true, custoFicha: 24.9, pesoKg: 3.9, pesoCubadoKg: 5.1, precoVenda: {ch1: 229.9} },
+  { id: 'p4', sku: 'TM000091', nome: 'Espelho Redondo Adnet 40cm', familia: 'Espelho', atributos: { cor: 'Caramelo', tamanho: '40cm' }, status: 'ativo', aliases: ['ED000240'], temFicha: true, custoFicha: 11.02, pesoKg: 1.9, pesoCubadoKg: 2.4, precoVenda: {ch1: 134.9} },
+  { id: 'p5', sku: 'ED000001', nome: 'Mouse Pad Desk Pad 90x40', familia: 'Mousepad', atributos: { cor: 'Preto', tamanho: '90x40' }, ean: '7898676460951', ncm: '5603.94.10', status: 'ativo', aliases: [], temFicha: true, custoFicha: 7.38, pesoKg: 0.45, pesoCubadoKg: 0.9, precoVenda: {ch1: 49.9, ch2: 44.9, ch3: 54.9} },
+  { id: 'p6', sku: 'ED000008', nome: 'Mouse Pad Desk Pad 90x40', familia: 'Mousepad', atributos: { cor: 'Caramelo', tamanho: '90x40' }, status: 'ativo', aliases: [], temFicha: true, custoFicha: 7.38, pesoKg: 0.45, pesoCubadoKg: 0.9, precoVenda: {ch1: 49.9, ch2: 44.9} },
+  { id: 'p7', sku: 'ED000002', nome: 'Mouse Pad Desk Pad 90x40', familia: 'Mousepad', atributos: { cor: 'Grafite', tamanho: '90x40' }, status: 'ativo', aliases: [], temFicha: true, custoFicha: 7.37, pesoKg: 0.45, pesoCubadoKg: 0.9, precoVenda: {ch1: 49.9} },
+  { id: 'p8', sku: 'ED000010', nome: 'Mouse Pad 20x20', familia: 'Mousepad', atributos: { cor: 'Caramelo', tamanho: '20x20' }, status: 'ativo', aliases: [], temFicha: true, custoFicha: 0.82, pesoKg: 0.08, pesoCubadoKg: 0.2, precoVenda: {ch2: 14.9} },
   { id: 'p9', sku: 'TM000120', nome: 'Espelho Orgânico Nuvem 50cm', familia: 'Espelho', atributos: { cor: 'Off White', tamanho: '50cm' }, status: 'ativo', aliases: ['ED000376'], temFicha: false },
   { id: 'p10', sku: 'ED000707', nome: 'Kit Jogo Americano 4 peças', familia: 'Mesa', atributos: { cor: 'Preto' }, status: 'ativo', aliases: [], temFicha: false },
   { id: 'p11', sku: 'TM000200', nome: 'Bandeja Espelhada 30cm', familia: 'Bandeja', atributos: { cor: 'Dourado', tamanho: '30cm' }, status: 'inativo', aliases: [], temFicha: true, custoFicha: 9.4 },
@@ -240,11 +249,11 @@ export const nfes: NfeInbound[] = [
 ]
 
 export const connectors: Connector[] = [
-  { id: 'c1', plataforma: 'baselinker', nome: 'Base.com (BaseLinker)', status: 'conectado', ultimoSync: diasAtras(0, hoje.getHours()), cursor: 'date_confirmed_from=…', pedidos24h: 412, outboxPendentes: 3, capacidades: { pedidos: true, webhooks: false, catalogo: true, pushEstoque: true, nfeCompra: false } },
-  { id: 'c2', plataforma: 'bling', nome: 'Bling', status: 'desconectado', capacidades: { pedidos: true, webhooks: true, catalogo: true, pushEstoque: true, nfeCompra: true } },
-  { id: 'c3', plataforma: 'tiny', nome: 'Tiny / Olist', status: 'desconectado', capacidades: { pedidos: true, webhooks: false, catalogo: true, pushEstoque: true, nfeCompra: true } },
-  { id: 'c4', plataforma: 'omie', nome: 'Omie', status: 'desconectado', capacidades: { pedidos: true, webhooks: true, catalogo: true, pushEstoque: true, nfeCompra: true } },
-  { id: 'c5', plataforma: 'magis5', nome: 'Magis5', status: 'desconectado', capacidades: { pedidos: true, webhooks: false, catalogo: true, pushEstoque: false, nfeCompra: false } },
+  { id: 'c1', plataforma: 'baselinker', nome: 'Base.com (BaseLinker)', status: 'conectado', ultimoSync: diasAtras(0, hoje.getHours()), cursor: 'date_confirmed_from=…', pedidos24h: 412, outboxPendentes: 3, capacidades: { pedidos: true, webhooks: false, catalogo: true, pushEstoque: true, pushCatalogo: true, nfeCompra: false } },
+  { id: 'c2', plataforma: 'bling', nome: 'Bling', status: 'desconectado', capacidades: { pedidos: true, webhooks: true, catalogo: true, pushEstoque: true, pushCatalogo: true, nfeCompra: true } },
+  { id: 'c3', plataforma: 'tiny', nome: 'Tiny / Olist', status: 'desconectado', capacidades: { pedidos: true, webhooks: false, catalogo: true, pushEstoque: true, pushCatalogo: true, nfeCompra: true } },
+  { id: 'c4', plataforma: 'omie', nome: 'Omie', status: 'desconectado', capacidades: { pedidos: true, webhooks: true, catalogo: true, pushEstoque: true, pushCatalogo: true, nfeCompra: true } },
+  { id: 'c5', plataforma: 'magis5', nome: 'Magis5', status: 'desconectado', capacidades: { pedidos: true, webhooks: false, catalogo: true, pushEstoque: false, pushCatalogo: true, nfeCompra: false } },
 ]
 
 export const outbox: OutboxItem[] = [
@@ -300,3 +309,12 @@ export const producao14d: { dia: string; projetado: number; produzido: number }[
   const produzido = i === 13 ? 215 : projetado - 20 + ((i * 11) % 45)
   return { dia: d.toISOString().slice(0, 10), projetado, produzido }
 })
+
+// Canais de venda: presets editáveis pelo cliente. Valores são de referência e devem ser conferidos.
+export const channels: Channel[] = [
+  { id: 'ch1', nome: 'Mercado Livre · Clássico', preset: 'mercadolivre', ativo: true, comissaoPct: 12, taxaFixa: 6, taxaFixaAbaixoDe: 79, freteVendedor: [{ ateKg: 0.3, valor: 0 }, { ateKg: 0.5, valor: 21.9 }, { ateKg: 1, valor: 23.9 }, { ateKg: 2, valor: 25.9 }, { ateKg: 3, valor: 27.9 }, { ateKg: 5, valor: 33.9 }, { ateKg: 9, valor: 51.9 }], freteGratisAcimaDe: 79, impostoVendaPct: 6, adsPct: 3, parcelamentoPct: 0, outrosPct: 0, observacao: 'Reputação verde. Confira a tabela vigente de Custo dos Envios.' },
+  { id: 'ch2', nome: 'Shopee', preset: 'shopee', ativo: true, comissaoPct: 20, taxaFixa: 4, freteVendedor: [], impostoVendaPct: 6, adsPct: 2, parcelamentoPct: 0, outrosPct: 0, observacao: 'Comissão + programa de frete grátis. Taxa fixa por item vendido.' },
+  { id: 'ch3', nome: 'Amazon · FBA', preset: 'amazon', ativo: true, comissaoPct: 15, taxaFixa: 0, freteVendedor: [{ ateKg: 0.5, valor: 14.9 }, { ateKg: 1, valor: 17.9 }, { ateKg: 2, valor: 21.9 }, { ateKg: 5, valor: 29.9 }], impostoVendaPct: 6, adsPct: 4, parcelamentoPct: 0, outrosPct: 0, observacao: 'Tarifa FBA por peso faturável.' },
+  { id: 'ch4', nome: 'TikTok Shop', preset: 'tiktok', ativo: false, comissaoPct: 8, taxaFixa: 0, freteVendedor: [], impostoVendaPct: 6, adsPct: 5, parcelamentoPct: 0, outrosPct: 0 },
+  { id: 'ch5', nome: 'Atacado · loja própria', preset: 'atacado', ativo: true, comissaoPct: 0, taxaFixa: 0, freteVendedor: [], impostoVendaPct: 6, adsPct: 0, parcelamentoPct: 2.5, outrosPct: 1, observacao: 'Cliente retira. Parcelamento no cartão.' },
+]

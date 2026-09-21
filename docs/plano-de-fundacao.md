@@ -171,3 +171,20 @@ Regra de ritmo: replaneje por fatia, não por calendário. Três semanas com men
 8. O nome Prodio, domínio e marca estão registrados? A Eddias aparece como caso de referência?
 9. Existe alguém na Eddias (compras, encarregada) que possa ser o usuário-teste diário sem você no meio?
 10. Aceita que o histórico antigo (27 mil movimentos, financeiro Kamino) fique no Suprimentos em modo leitura?
+
+## 14. Decisões de escopo (21/09/2026)
+
+Registradas com o fundador depois da primeira versão da interface.
+
+**Entra no Prodio**
+- Precificação por canal, com canais criados e configurados pelo próprio cliente (presets editáveis de Mercado Livre, Shopee, Amazon, TikTok, Magalu, loja própria e atacado). O custo vem da ficha técnica.
+- Painel de produtividade com histórico. Justificativa: medir aderência da projeção, achar gargalo por hora e reconhecer quem produz, sem apontamento além do bipe. Vive em Apontamentos.
+- Conferência e inventário genéricos, em sessões, com modo "por peças" para material dimensional e sobras aproveitáveis. Substitui a conciliação de chapas da Eddias.
+- Etiqueta de montagem generalizada como etiqueta de processo, configurada por família em perfis de etiqueta (produto, montagem, caixa).
+- Avisos por Google Chat (webhook por espaço), e-mail e, depois, WhatsApp.
+- Envio de produtos ao ERP ou hub pela API do conector (substitui a exportação de planilha para o Tiny).
+
+**Fica fora, também para a Eddias**
+- Expedição, devoluções e financeiro.
+- Espelho de NF-e da Kamino. No lugar: XML por e-mail, upload ou ERP conectado, e consulta direta por chave na hora do bipe via provedor (certificado A1 do cliente ou consulta paga por chave).
+- Conciliação física de chapas como módulo específico.
