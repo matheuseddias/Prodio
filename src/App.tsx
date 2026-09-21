@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import AppShell from './app/AppShell'
 import MobileShell, { ChaoProvider } from './app/MobileShell'
 import { ThemeProvider } from './app/theme'
@@ -27,6 +27,8 @@ const ChaoReceber = lazy(() => import('./pages/chao/Receber'))
 const ChaoReceberNfe = lazy(() => import('./pages/chao/ReceberNfe'))
 const ChaoInventario = lazy(() => import('./pages/chao/Inventario'))
 
+const Router = import.meta.env.VITE_HASH_ROUTER ? HashRouter : BrowserRouter
+
 function Loading() {
   return <div className="p-8 text-sm text-muted">Carregando…</div>
 }
@@ -35,7 +37,7 @@ export default function App() {
   return (
     <ThemeProvider>
       <StoreProvider>
-        <BrowserRouter>
+        <Router>
           <Suspense fallback={<Loading />}>
             <Routes>
               <Route path="/" element={<Navigate to="/painel" replace />} />
@@ -80,7 +82,7 @@ export default function App() {
               <Route path="*" element={<Navigate to="/painel" replace />} />
             </Routes>
           </Suspense>
-        </BrowserRouter>
+        </Router>
       </StoreProvider>
     </ThemeProvider>
   )
