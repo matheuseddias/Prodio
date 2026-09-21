@@ -40,6 +40,10 @@ docs/         plano de fundação e arquitetura
 
 Testes de banco: `PGURL=postgres://... pnpm db:test` (Postgres 16; a CI faz isso automaticamente).
 
+## Instalar num Supabase real
+
+Ver `docs/deploy.md`: gerar os arquivos com `bash supabase/build.sh`, aplicar o schema, criar a empresa, ligar o gatilho de token e a sessão anônima.
+
 ## Próximos passos
 
-Ver `docs/plano-de-fundacao.md`.
+Ver `docs/plano-de-fundacao.md` e `docs/arquitetura.md`.

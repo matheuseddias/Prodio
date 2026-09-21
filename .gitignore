@@ -12,3 +12,4 @@ dist-artifact
 .idea
 .DS_Store
 *.log
+supabase/dist
