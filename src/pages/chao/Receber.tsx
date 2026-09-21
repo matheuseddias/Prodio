@@ -1,16 +1,17 @@
-import { CalendarClock, ChevronRight, FileSearch, FileUp, Loader2, PackageOpen, ScanBarcode, Truck } from 'lucide-react'
+import { ChevronRight, ScanBarcode, ScanSearch } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { chaveFmt, dataBR, hojeISO, num } from '../../domain/format'
 import { useLookups, useStore } from '../../domain/store'
-import type { PurchaseOrder } from '../../domain/types'
 import { cx } from '../../ui'
 import { ORIGEM_LABEL, validaChaveNfe } from '../recebimento/nfeUtils'
 import { beepAviso, beepErro, beepOk } from './feedback'
+import ReceberNaoEncontrada, { CHAVE_DEMO_PROVEDOR } from './ReceberNaoEncontrada'
 import Scanner from './Scanner'
 import Sheet from './Sheet'
 
 const FORMATOS = ['code_128']
+/** Chave já conhecida no Prodio (NF-e 48211, Vidros Guarulhos). */
 const CHAVE_DEMO = '35260912345678000190550010000482111000482119'
 
 type Folha = null | { tipo: 'leitor' } | { tipo: 'nao_encontrada'; chave: string }
@@ -142,13 +143,22 @@ export default function Receber() {
         </ul>
       </section>
 
-      <button
-        type="button"
-        onClick={() => procurar(CHAVE_DEMO)}
-        className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-700 text-[14px] text-slate-400 active:bg-slate-900"
-      >
-        <ScanBarcode size={16} /> Simular bipe da NF-e 48211
-      </button>
+      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={() => procurar(CHAVE_DEMO)}
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-700 text-[14px] text-slate-400 active:bg-slate-900"
+        >
+          <ScanBarcode size={16} /> Simular bipe da NF-e 48211
+        </button>
+        <button
+          type="button"
+          onClick={() => procurar(CHAVE_DEMO_PROVEDOR)}
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-700 text-[14px] text-slate-400 active:bg-slate-900"
+        >
+          <ScanSearch size={16} /> Simular bipe de nota desconhecida
+        </button>
+      </div>
 
       {/* Rodapé fixo */}
       <div className="fixed inset-x-0 bottom-[68px] z-30 px-4 pb-2" style={{ marginBottom: 'env(safe-area-inset-bottom)' }}>
@@ -178,102 +188,7 @@ export default function Receber() {
         </Sheet>
       )}
 
-      {folha?.tipo === 'nao_encontrada' && (
-        <NaoEncontrada
-          chave={folha.chave}
-          ocs={ocs}
-          onClose={() => setFolha(null)}
-          onCegas={(po) => nav(`/chao/receber/${folha.chave}`, { state: { semXml: { chave: folha.chave, poId: po.id } } })}
-        />
-      )}
+      {folha?.tipo === 'nao_encontrada' && <ReceberNaoEncontrada key={folha.chave} chave={folha.chave} ocs={ocs} onClose={() => setFolha(null)} />}
     </div>
-  )
-}
-
-function NaoEncontrada({ chave, ocs, onClose, onCegas }: { chave: string; ocs: PurchaseOrder[]; onClose: () => void; onCegas: (po: PurchaseOrder) => void }) {
-  const { supplier } = useLookups()
-  const [erp, setErp] = useState<'idle' | 'buscando' | 'falhou'>('idle')
-  const [xml, setXml] = useState<string | null>(null)
-  const [escolherOc, setEscolherOc] = useState(false)
-
-  const buscarErp = () => {
-    setErp('buscando')
-    window.setTimeout(() => {
-      setErp('falhou')
-      beepErro()
-    }, 1500)
-  }
-
-  return (
-    <Sheet titulo="Nota não encontrada" onClose={onClose}>
-      <div className="rounded-xl bg-slate-800/70 p-3 font-mono text-[13px] leading-relaxed text-slate-300 break-all">{chaveFmt(chave)}</div>
-      <p className="mt-3 text-[14px] text-slate-400">O XML desta nota ainda não chegou no Prodio. O que você quer fazer?</p>
-
-      <div className="mt-4 space-y-2">
-        <label className="flex h-16 cursor-pointer items-center gap-3 rounded-2xl border border-slate-700 bg-slate-900 px-4 active:bg-slate-800">
-          <FileUp size={22} className="text-teal-300" />
-          <span className="flex-1">
-            <span className="block text-[16px] font-medium">Compartilhar XML</span>
-            <span className="block text-[12px] text-slate-400">{xml ? `${xml} — parser no servidor: em breve` : 'Do e-mail, WhatsApp ou arquivos'}</span>
-          </span>
-          <input type="file" accept=".xml,text/xml" className="hidden" onChange={(e) => setXml(e.target.files?.[0]?.name ?? null)} />
-        </label>
-
-        <button
-          type="button"
-          onClick={buscarErp}
-          disabled={erp === 'buscando'}
-          className="flex h-16 w-full items-center gap-3 rounded-2xl border border-slate-700 bg-slate-900 px-4 text-left active:bg-slate-800 disabled:opacity-70"
-        >
-          {erp === 'buscando' ? <Loader2 size={22} className="animate-spin text-slate-300" /> : <FileSearch size={22} className="text-teal-300" />}
-          <span className="flex-1">
-            <span className="block text-[16px] font-medium">Buscar no ERP conectado</span>
-            <span className={cx('block text-[12px]', erp === 'falhou' ? 'text-red-300' : 'text-slate-400')}>
-              {erp === 'buscando' ? 'Consultando Bling…' : erp === 'falhou' ? 'O ERP não devolveu esta chave. Tente o XML ou receba às cegas.' : 'Procura a NF-e pela chave'}
-            </span>
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setEscolherOc((v) => !v)}
-          className="flex h-16 w-full items-center gap-3 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 text-left active:bg-amber-500/20"
-        >
-          <PackageOpen size={22} className="text-amber-300" />
-          <span className="flex-1">
-            <span className="block text-[16px] font-medium text-amber-100">Receber às cegas contra a OC</span>
-            <span className="block text-[12px] text-amber-200/80">Entra o que a OC pede; o XML acerta depois</span>
-          </span>
-        </button>
-
-        {escolherOc && (
-          <ul className="space-y-2 pl-2">
-            {ocs.map((po) => {
-              const s = supplier(po.supplierId)
-              return (
-                <li key={po.id}>
-                  <button
-                    type="button"
-                    onClick={() => onCegas(po)}
-                    className="flex h-14 w-full items-center gap-3 rounded-xl border border-slate-700 bg-slate-900 px-4 text-left active:bg-slate-800"
-                  >
-                    <Truck size={18} className="text-slate-400" />
-                    <span className="flex-1 truncate">
-                      <span className="font-medium">OC {po.numero}</span> <span className="text-slate-400">· {s?.nome}</span>
-                    </span>
-                    {po.entregaPrevista && (
-                      <span className="flex items-center gap-1 text-[12px] text-slate-500">
-                        <CalendarClock size={14} /> {dataBR(po.entregaPrevista)}
-                      </span>
-                    )}
-                  </button>
-                </li>
-              )
-            })}
-            {ocs.length === 0 && <li className="text-[13px] text-slate-500">Nenhuma OC aberta para vincular.</li>}
-          </ul>
-        )}
-      </div>
-    </Sheet>
   )
 }

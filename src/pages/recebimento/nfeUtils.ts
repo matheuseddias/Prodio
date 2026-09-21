@@ -1,4 +1,5 @@
-import type { NfeInbound, NfeItem, PurchaseOrder } from '../../domain/types'
+import type { Material, NfeInbound, NfeItem, PurchaseOrder, Supplier } from '../../domain/types'
+import type { Tone } from '../../ui'
 
 // ---- Chave NF-e ------------------------------------------------------------
 
@@ -70,6 +71,15 @@ export const STATUS_LABEL: Record<NfeInbound['status'], string> = {
   ignorada: 'Ignorada',
 }
 
+export const STATUS_TONE: Record<NfeInbound['status'], Tone> = {
+  aguardando_xml: 'warn',
+  pendente: 'info',
+  conferida: 'accent',
+  recebida: 'ok',
+  ignorada: 'neutral',
+}
+export const ORIGEM_TONE: Record<NfeInbound['origem'], Tone> = { email: 'info', upload: 'neutral', erp: 'accent', dfe: 'accent', sem_xml: 'warn' }
+
 // ---- Baixa de OC -----------------------------------------------------------
 
 /**
@@ -131,4 +141,65 @@ export function similaridade(a: string, b: string): number {
     .filter((t) => t.length >= 3)
   const nb = norm(b)
   return ta.filter((t) => nb.includes(t)).length
+}
+
+// ---- E-mail de XML por tenant ---------------------------------------------
+
+/** Slug curto do tenant: primeira palavra do nome, sem acento. */
+export const slugTenant = (nome: string) => norm(nome).split(/[^a-z0-9]+/).filter(Boolean)[0] ?? 'empresa'
+
+/** Endereço que recebe XML por e-mail: xml@<slug>.prodio.app (sempre ativo). */
+export const emailXml = (nomeTenant: string) => `xml@${slugTenant(nomeTenant)}.prodio.app`
+
+// ---- Nota a partir da chave + OC (consulta no provedor / recebimento às cegas) ----
+
+/** Partes da chave de acesso: CNPJ do emitente, série e número. */
+export function partesChave(chave: string) {
+  return { cnpj: chave.slice(6, 20), serie: Number(chave.slice(22, 25)), numero: Number(chave.slice(25, 34)) }
+}
+
+/**
+ * Monta uma NfeInbound para uma chave que não estava no Prodio.
+ * - 'dfe': o provedor devolveu o XML; itens de exemplo a partir do pendente da OC.
+ * - 'sem_xml': recebimento às cegas; fica 'aguardando_xml' sem itens.
+ */
+export function nfeDaChave(chave: string, origem: 'dfe' | 'sem_xml', po: PurchaseOrder | undefined, materials: Material[], suppliers: Supplier[]): NfeInbound {
+  const { cnpj, serie, numero } = partesChave(chave)
+  const forn = suppliers.find((s) => s.cnpj === cnpj) ?? (po ? suppliers.find((s) => s.id === po.supplierId) : undefined)
+  const pendentes = (po?.itens ?? []).map((pi) => ({ pi, pend: Math.max(0, pi.qtd - pi.qtdRecebida) })).filter((x) => x.pend > 0)
+  const itens: NfeItem[] =
+    origem === 'dfe'
+      ? pendentes.map(({ pi, pend }, idx) => {
+          const m = materials.find((x) => x.id === pi.materialId)
+          return {
+            nItem: idx + 1,
+            cProd: m?.sku ?? pi.materialId,
+            xProd: (m?.nome ?? pi.materialId).toUpperCase(),
+            ncm: (m?.ncm ?? '').replace(/\D/g, ''),
+            cfop: '5102',
+            uCom: pi.unidadeCompra.toUpperCase(),
+            qCom: pend,
+            vUnCom: pi.preco,
+            vProd: Math.round(pend * pi.preco * 100) / 100,
+            materialId: pi.materialId,
+            fator: pi.fator,
+            qtdConsumo: Math.round(pend * pi.fator * 1000) / 1000,
+          }
+        })
+      : []
+  const valorTotal = Math.round(pendentes.reduce((a, { pi, pend }) => a + pend * pi.preco, 0) * 100) / 100
+  return {
+    chave,
+    numero,
+    serie,
+    cnpjEmitente: cnpj,
+    emitente: forn?.nome ?? `CNPJ ${cnpj}`,
+    supplierId: forn?.id,
+    emissao: new Date().toISOString(),
+    valorTotal,
+    origem,
+    status: origem === 'dfe' ? 'pendente' : 'aguardando_xml',
+    poIds: po ? [po.id] : [],
+    itens,
+  }
 }
