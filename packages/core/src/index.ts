@@ -1,2 +1,11 @@
 // Ponto de entrada do pacote de domínio. Cada módulo é puro: sem React, sem banco, sem rede.
+export * from './tipos'
+export * from './ficha'
+export * from './unidades'
+export * from './tributos'
+export * from './custeio'
+export * from './projecao'
+export * from './necessidade'
+export * from './etiquetas'
+export * from './nfe'
 export * from './precificacao'

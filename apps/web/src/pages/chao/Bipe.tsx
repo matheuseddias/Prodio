@@ -20,14 +20,22 @@ export default function Bipe() {
   const [filaOffline, setFilaOffline] = useState<string[]>([])
   const [armado, setArmado] = useState<string | null>(null)
   const timer = useRef(0)
+  // Modo Supabase: contador real da fila em IndexedDB; modo memória: fila ilustrativa local.
+  const { modo, sincronizarBipes } = store
+  const pendentes = modo === 'supabase' ? store.pendentesBipes : filaOffline.length
 
-  // Limpa fila fictícia quando volta a rede
+  // Modo memória: limpa a fila ilustrativa quando volta a rede. Supabase: dispara o replay.
   useEffect(() => {
-    if (online && filaOffline.length) {
+    if (!online) return
+    if (modo === 'supabase') {
+      void sincronizarBipes()
+      return
+    }
+    if (filaOffline.length) {
       const id = window.setTimeout(() => setFilaOffline([]), 800)
       return () => window.clearTimeout(id)
     }
-  }, [online, filaOffline.length])
+  }, [online, filaOffline.length, modo, sincronizarBipes])
 
   // Estorno por toque duplo: desarma sozinho
   useEffect(() => {
@@ -71,7 +79,7 @@ export default function Bipe() {
     setPainel({ serial, result, bipadoHoje, projetado })
     if (result.ok) {
       beepOk()
-      if (!online) setFilaOffline((f) => [...f, serial])
+      if (!online && store.modo === 'memoria') setFilaOffline((f) => [...f, serial])
     } else if (result.motivo === 'desconhecida') beepAviso()
     else beepErro()
     window.clearTimeout(timer.current)
@@ -138,11 +146,18 @@ export default function Bipe() {
         </div>
       </section>
 
-      {/* Offline */}
-      {!online && (
+      {/* Offline / pendentes */}
+      {(!online || pendentes > 0) && (
         <div className="mt-3 flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[14px] text-amber-200">
           <CloudOff size={18} />
-          Sem rede · <strong>{filaOffline.length}</strong> pendente{filaOffline.length === 1 ? '' : 's'} offline — os bipes ficam guardados neste aparelho.
+          <span className="flex-1">
+            {online ? 'Sincronizando' : 'Sem rede'} · <strong>{pendentes}</strong> pendente{pendentes === 1 ? '' : 's'} — os bipes ficam guardados neste aparelho.
+          </span>
+          {online && store.modo === 'supabase' && (
+            <button type="button" onClick={() => void store.sincronizarBipes()} className="h-10 rounded-lg bg-amber-500/20 px-3 text-[13px] font-medium active:bg-amber-500/30">
+              Enviar agora
+            </button>
+          )}
         </div>
       )}
 
@@ -214,7 +229,11 @@ function ResultadoPainel({ painel, onClose }: { painel: Painel; onClose: () => v
       ? { bg: 'bg-red-600', titulo: 'JÁ BIPADO', Icon: XCircle }
       : r.motivo === 'anulada'
         ? { bg: 'bg-red-700', titulo: 'ETIQUETA ANULADA', Icon: Ban }
-        : { bg: 'bg-amber-500', titulo: 'DESCONHECIDA', Icon: AlertTriangle }
+        : r.motivo === 'nao_impressa'
+          ? { bg: 'bg-amber-600', titulo: 'NÃO IMPRESSA', Icon: AlertTriangle }
+          : r.motivo === 'sem_operador'
+            ? { bg: 'bg-amber-600', titulo: 'ENTRE COM O PIN', Icon: AlertTriangle }
+            : { bg: 'bg-amber-500', titulo: 'DESCONHECIDA', Icon: AlertTriangle }
   return (
     <div className={cx('fixed inset-x-0 top-12 z-40 mx-3 rounded-2xl p-5 text-white shadow-2xl', cfg.bg)} role="status" onClick={onClose}>
       <div className="flex items-center gap-3">

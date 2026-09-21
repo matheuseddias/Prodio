@@ -1,7 +1,9 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import AppShell from './app/AppShell'
+import { AuthProvider } from './app/auth'
 import MobileShell, { ChaoProvider } from './app/MobileShell'
+import RotaProtegida from './app/RotaProtegida'
 import { ThemeProvider } from './app/theme'
 import { StoreProvider } from './domain/store'
 
@@ -37,55 +39,63 @@ function Loading() {
 export default function App() {
   return (
     <ThemeProvider>
-      <StoreProvider>
-        <Router>
-          <Suspense fallback={<Loading />}>
-            <Routes>
-              <Route path="/" element={<Navigate to="/painel" replace />} />
-              <Route path="/login" element={<Login />} />
-              <Route element={<AppShell />}>
-                <Route path="/painel" element={<Painel />} />
-                <Route path="/producao/linha-de-hoje" element={<LinhaDeHoje />} />
-                <Route path="/producao/etiquetas" element={<Etiquetas />} />
-                <Route path="/producao/apontamentos" element={<Apontamentos />} />
-                <Route path="/estoque" element={<Estoque />} />
-                <Route path="/compras/necessidade" element={<Necessidade />} />
-                <Route path="/compras/ordens" element={<Ordens />} />
-                <Route path="/compras/ordens/:id" element={<OrdemDetalhe />} />
-                <Route path="/recebimento" element={<Recebimento />} />
-                <Route path="/cadastros/produtos" element={<Produtos />} />
-                <Route path="/cadastros/fichas" element={<Fichas />} />
-                <Route path="/cadastros/insumos" element={<Insumos />} />
-                <Route path="/cadastros/fornecedores" element={<Fornecedores />} />
-                <Route path="/precificacao" element={<Precificacao />} />
-                <Route path="/conectores" element={<Conectores />} />
-                <Route path="/configuracoes" element={<Configuracoes />} />
-              </Route>
-              <Route
-                path="/chao"
-                element={
-                  <ChaoProvider>
-                    <ChaoPin />
-                  </ChaoProvider>
-                }
-              />
-              <Route
-                element={
-                  <ChaoProvider>
-                    <MobileShell />
-                  </ChaoProvider>
-                }
-              >
-                <Route path="/chao/bipe" element={<ChaoBipe />} />
-                <Route path="/chao/receber" element={<ChaoReceber />} />
-                <Route path="/chao/receber/:chave" element={<ChaoReceberNfe />} />
-                <Route path="/chao/inventario" element={<ChaoInventario />} />
-              </Route>
-              <Route path="*" element={<Navigate to="/painel" replace />} />
-            </Routes>
-          </Suspense>
-        </Router>
-      </StoreProvider>
+      <AuthProvider>
+        <StoreProvider>
+          <Router>
+            <Suspense fallback={<Loading />}>
+              <Routes>
+                <Route path="/" element={<Navigate to="/painel" replace />} />
+                <Route path="/login" element={<Login />} />
+                <Route
+                  element={
+                    <RotaProtegida>
+                      <AppShell />
+                    </RotaProtegida>
+                  }
+                >
+                  <Route path="/painel" element={<Painel />} />
+                  <Route path="/producao/linha-de-hoje" element={<LinhaDeHoje />} />
+                  <Route path="/producao/etiquetas" element={<Etiquetas />} />
+                  <Route path="/producao/apontamentos" element={<Apontamentos />} />
+                  <Route path="/estoque" element={<Estoque />} />
+                  <Route path="/compras/necessidade" element={<Necessidade />} />
+                  <Route path="/compras/ordens" element={<Ordens />} />
+                  <Route path="/compras/ordens/:id" element={<OrdemDetalhe />} />
+                  <Route path="/recebimento" element={<Recebimento />} />
+                  <Route path="/cadastros/produtos" element={<Produtos />} />
+                  <Route path="/cadastros/fichas" element={<Fichas />} />
+                  <Route path="/cadastros/insumos" element={<Insumos />} />
+                  <Route path="/cadastros/fornecedores" element={<Fornecedores />} />
+                  <Route path="/precificacao" element={<Precificacao />} />
+                  <Route path="/conectores" element={<Conectores />} />
+                  <Route path="/configuracoes" element={<Configuracoes />} />
+                </Route>
+                <Route
+                  path="/chao"
+                  element={
+                    <ChaoProvider>
+                      <ChaoPin />
+                    </ChaoProvider>
+                  }
+                />
+                <Route
+                  element={
+                    <ChaoProvider>
+                      <MobileShell />
+                    </ChaoProvider>
+                  }
+                >
+                  <Route path="/chao/bipe" element={<ChaoBipe />} />
+                  <Route path="/chao/receber" element={<ChaoReceber />} />
+                  <Route path="/chao/receber/:chave" element={<ChaoReceberNfe />} />
+                  <Route path="/chao/inventario" element={<ChaoInventario />} />
+                </Route>
+                <Route path="*" element={<Navigate to="/painel" replace />} />
+              </Routes>
+            </Suspense>
+          </Router>
+        </StoreProvider>
+      </AuthProvider>
     </ThemeProvider>
   )
 }

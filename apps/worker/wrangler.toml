@@ -3,8 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
 
-# Segredos (wrangler secret put): SUPABASE_URL, SUPABASE_SERVICE_KEY, CREDENTIALS_KEY (cifra as credenciais de conectores).
-# Nunca a anon key: o worker é o único lugar com service role, e só roda por cron ou webhook autenticado.
+# Segredos (wrangler secret put): SUPABASE_URL, SUPABASE_SERVICE_KEY, SUPABASE_ANON_KEY, CREDENTIALS_KEY,
+# BLING_CLIENT_ID, BLING_CLIENT_SECRET. Ver README.md.
+# Service role só em cron, webhook e e-mail. Rotas acionadas por usuário (/nfe/xml, /connectors/*) usam
+# a anon key + o JWT do próprio usuário, então RLS e assert_member valem.
 
 [triggers]
 crons = [
@@ -12,5 +14,5 @@ crons = [
   "0 3 * * *"      # auditor noturno de estoque no hub
 ]
 
-[[send_email]]
-name = "EMAIL_XML"
+# E-mail de entrada (Email Routing): regra "xml@*.prodio.app" -> este worker (handler email). Ver README.md.
+# Sem binding de envio: o worker só recebe.

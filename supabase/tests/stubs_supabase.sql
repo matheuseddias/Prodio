@@ -16,6 +16,13 @@ grant usage on schema public to anon, authenticated, service_role;
 grant usage on schema extensions to anon, authenticated, service_role;
 grant execute on all functions in schema extensions to anon, authenticated, service_role;
 
+-- Supabase concede, por default privileges, ALL em toda tabela/função/sequência nova de public a anon,
+-- authenticated e service_role (initial-schema.sql e post-setup.sql). Reproduzido aqui para que o ambiente
+-- de teste seja tão hostil quanto a produção: as migrations precisam revogar explicitamente.
+alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
+alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
+
 create schema if not exists auth;
 grant usage on schema auth to anon, authenticated, service_role, supabase_auth_admin;
 
@@ -49,7 +56,8 @@ declare
   v_meta jsonb;
 begin
   select raw_app_meta_data into v_meta from auth.users where id = p_user;
-  perform set_config('request.jwt.claims', jsonb_build_object('sub', p_user, 'role', p_role, 'app_metadata', coalesce(v_meta, '{}'::jsonb))::text, true);
+  perform set_config('request.jwt.claims', jsonb_build_object('sub', p_user, 'role', p_role, 'app_metadata', coalesce(v_meta, '{}'::jsonb),
+    'is_anonymous', coalesce((select u.is_anonymous from auth.users u where u.id = p_user), false))::text, true);
   execute format('set local role %I', p_role);
 end $$;
 

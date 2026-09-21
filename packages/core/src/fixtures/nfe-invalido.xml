@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">
+  <NFe>
+    <infNFe Id="NFe35260312345678000195550010000012341123456786" versao="4.00">
+      <ide><cUF>35</cUF><mod>55</mod><serie>1</serie><nNF>1234</nNF>
+      <emit><CNPJ>12345678000195</CNPJ></emit>
+    </infNFe>
+  </NFe>

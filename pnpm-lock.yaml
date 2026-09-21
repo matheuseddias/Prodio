@@ -20,6 +20,9 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.106.2
         version: 2.116.0
+      idb:
+        specifier: 7.1.1
+        version: 7.1.1
       lucide-react:
         specifier: ^1.47.0
         version: 1.47.0(react@19.3.0)
@@ -78,6 +81,9 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.106.2
         version: 2.116.0
+      postal-mime:
+        specifier: ^3.0.0
+        version: 3.0.0
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20250921.0
@@ -2442,6 +2448,9 @@ packages:
   possible-typed-array-names@1.1.0:
     resolution: {integrity: sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==}
     engines: {node: '>= 0.4'}
+
+  postal-mime@3.0.0:
+    resolution: {integrity: sha512-Z4a9ar2Bv3YpK3IXag+Yda30k7bMZfpRuUGyqtHnZ2pjHG8Bl62EhZIk4n1dzv00gfzP9g+94e9kd8+XmjVWLA==}
 
   postcss@8.5.28:
     resolution: {integrity: sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A==}
@@ -5137,6 +5146,8 @@ snapshots:
   picomatch@4.0.7: {}
 
   possible-typed-array-names@1.1.0: {}
+
+  postal-mime@3.0.0: {}
 
   postcss@8.5.28:
     dependencies:

@@ -290,3 +290,27 @@ export interface Notification {
   em: string
   lida: boolean
 }
+
+// ---------------------------------------------------------------------------
+// Ficha técnica: calculadora de consumo por partes (bom_lines.calc)
+// ---------------------------------------------------------------------------
+export type BomCalcTipo = 'area' | 'rolo' | 'comprimento' | 'peso' | 'unidade'
+export interface BomCalcParte {
+  qtd?: number // quantas peças iguais (padrão 1)
+  largCm?: number // area e rolo
+  altCm?: number // area e rolo
+  compCm?: number // comprimento
+  pesoG?: number // peso
+  un?: number // unidade
+}
+export interface BomCalc {
+  tipo: BomCalcTipo
+  partes: BomCalcParte[]
+  larguraRoloM?: number // obrigatória para tipo 'rolo'
+  perda?: { tipo: 'pct' | 'fixa'; valor: number } // pct em fração (0.05 = 5%)
+}
+
+// Tipos da NF-e parseada ficam em arquivo próprio (limite de 400 linhas); continuam expostos por aqui.
+export * from './tipos-nfe'
+
+export type Regime = Tenant['regime']

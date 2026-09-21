@@ -1,17 +1,48 @@
-import { ArrowRight, Mail, ScanLine } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { AlertTriangle, ArrowRight, CheckCircle2, Mail, ScanLine } from 'lucide-react'
+import { useEffect, useState, type FormEvent } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useAuth } from '../app/auth'
 import { Button, Field, Input } from '../ui'
 
 export default function Login() {
   const nav = useNavigate()
+  const loc = useLocation()
+  const auth = useAuth()
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
   const [porLink, setPorLink] = useState(false)
+  const [ocupado, setOcupado] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const [aviso, setAviso] = useState<string | null>(null)
+  const destino = (loc.state as { de?: string } | null)?.de || '/painel'
 
-  const entrar = (e: FormEvent) => {
+  // Já autenticado (ou voltou do link mágico): segue para o painel.
+  useEffect(() => {
+    if (auth.modo === 'supabase' && auth.sessao && !auth.usuario?.anonimo) nav(destino, { replace: true })
+  }, [auth.modo, auth.sessao, auth.usuario?.anonimo, nav, destino])
+
+  const entrar = async (e: FormEvent) => {
     e.preventDefault()
-    nav('/painel')
+    setErro(null)
+    setAviso(null)
+    if (auth.modo === 'memoria') {
+      nav('/painel')
+      return
+    }
+    setOcupado(true)
+    try {
+      if (porLink) {
+        await auth.entrarLink(email)
+        setAviso(`Enviamos um link de acesso para ${email.trim()}. Abra o e-mail neste aparelho.`)
+      } else {
+        await auth.entrarSenha(email, senha)
+        nav(destino, { replace: true })
+      }
+    } catch (err) {
+      setErro((err as Error).message)
+    } finally {
+      setOcupado(false)
+    }
   }
 
   return (
@@ -24,27 +55,48 @@ export default function Login() {
             <p className="mt-1 text-sm text-muted">Produção scan-first para a sua fábrica</p>
           </div>
 
-          <form onSubmit={entrar} className="bg-surface border border-border rounded-[var(--radius-card)] shadow-[var(--shadow-card)] p-6 space-y-4">
+          <form onSubmit={(e) => void entrar(e)} className="bg-surface border border-border rounded-[var(--radius-card)] shadow-[var(--shadow-card)] p-6 space-y-4">
+            {auth.modo === 'memoria' && (
+              <div className="rounded-lg bg-accent-soft/40 px-3 py-2 text-[12px] text-accent-text">Modo de demonstração: sem Supabase configurado, o botão entra direto com dados de exemplo.</div>
+            )}
             <Field label="E-mail">
-              <Input type="email" autoComplete="email" placeholder="voce@empresa.com.br" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              <Input type="email" autoComplete="email" placeholder="voce@empresa.com.br" value={email} onChange={(e) => setEmail(e.target.value)} required={auth.modo === 'supabase'} />
             </Field>
             {!porLink && (
               <Field label="Senha">
-                <Input type="password" autoComplete="current-password" placeholder="••••••••" value={senha} onChange={(e) => setSenha(e.target.value)} required />
+                <Input type="password" autoComplete="current-password" placeholder="••••••••" value={senha} onChange={(e) => setSenha(e.target.value)} required={auth.modo === 'supabase'} />
               </Field>
             )}
-            <Button type="submit" variant="primary" className="w-full">
+            {erro && (
+              <div className="flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger" role="alert">
+                <AlertTriangle size={15} className="mt-0.5 shrink-0" /> {erro}
+              </div>
+            )}
+            {aviso && (
+              <div className="flex items-start gap-2 rounded-lg border border-ok/30 bg-ok/10 px-3 py-2 text-[13px] text-ok" role="status">
+                <CheckCircle2 size={15} className="mt-0.5 shrink-0" /> {aviso}
+              </div>
+            )}
+            <Button type="submit" variant="primary" className="w-full" disabled={ocupado}>
               {porLink ? (
                 <>
-                  <Mail size={16} /> Enviar link de acesso
+                  <Mail size={16} /> {ocupado ? 'Enviando…' : 'Enviar link de acesso'}
                 </>
               ) : (
                 <>
-                  Entrar <ArrowRight size={16} />
+                  {ocupado ? 'Entrando…' : 'Entrar'} <ArrowRight size={16} />
                 </>
               )}
             </Button>
-            <button type="button" onClick={() => setPorLink((v) => !v)} className="block w-full text-center text-[13px] text-accent-text hover:underline">
+            <button
+              type="button"
+              onClick={() => {
+                setPorLink((v) => !v)
+                setErro(null)
+                setAviso(null)
+              }}
+              className="block w-full text-center text-[13px] text-accent-text hover:underline"
+            >
               {porLink ? 'Entrar com senha' : 'Entrar com link por e-mail'}
             </button>
           </form>
