@@ -1,5 +1,5 @@
 import { AlertTriangle, ArrowUpToLine, Calculator, Plus, Printer, Tag } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { locations } from '../../domain/mock'
 import { num, pct } from '../../domain/format'
@@ -8,7 +8,11 @@ import { Badge, Button, Card, EmptyState, Field, Modal, Progress, Select, Table,
 
 function QtyInput({ value, onCommit, highlight }: { value: number; onCommit: (v: number) => void; highlight?: boolean }) {
   const [draft, setDraft] = useState(String(value))
-  useEffect(() => setDraft(String(value)), [value])
+  const [prev, setPrev] = useState(value)
+  if (prev !== value) {
+    setPrev(value)
+    setDraft(String(value))
+  }
   const commit = () => {
     const v = Math.max(0, Math.round(Number(draft) || 0))
     setDraft(String(v))
