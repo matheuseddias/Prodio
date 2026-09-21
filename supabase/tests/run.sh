@@ -10,8 +10,10 @@ for f in migrations/*.sql; do
   echo "migration: $f"
   psql "$PGURL" -v ON_ERROR_STOP=1 -q -f "$f"
 done
-echo "seed"
-psql "$PGURL" -v ON_ERROR_STOP=1 -q -f seed.sql
+for f in seed*.sql; do
+  echo "seed: $f"
+  psql "$PGURL" -v ON_ERROR_STOP=1 -q -f "$f"
+done
 for f in tests/*.test.sql; do
   echo "test: $f"
   psql "$PGURL" -v ON_ERROR_STOP=1 -q -f "$f"
