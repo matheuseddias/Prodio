@@ -1,0 +1,16 @@
+name = "prodio-worker"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Segredos (wrangler secret put): SUPABASE_URL, SUPABASE_SERVICE_KEY, CREDENTIALS_KEY (cifra as credenciais de conectores).
+# Nunca a anon key: o worker é o único lugar com service role, e só roda por cron ou webhook autenticado.
+
+[triggers]
+crons = [
+  "*/5 * * * *",   # sync de pedidos e aplicação do outbox
+  "0 3 * * *"      # auditor noturno de estoque no hub
+]
+
+[[send_email]]
+name = "EMAIL_XML"

@@ -1,7 +1,7 @@
 import { ArrowDownToLine, X } from 'lucide-react'
 import { useState } from 'react'
 import { brl } from '../../domain/format'
-import { avaliarPreco, precoParaMargem, type ResultadoPreco } from '../../domain/precificacao'
+import { avaliarPreco, precoParaMargem, type ResultadoPreco } from '@prodio/core'
 import { useStore } from '../../domain/store'
 import type { Channel, Product } from '../../domain/types'
 import { Button, Card, cx } from '../../ui'

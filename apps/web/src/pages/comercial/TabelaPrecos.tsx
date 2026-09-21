@@ -1,7 +1,7 @@
 import { AlertTriangle, Download } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { brl, num } from '../../domain/format'
-import { avaliarPreco, pesoFaturavel } from '../../domain/precificacao'
+import { avaliarPreco, pesoFaturavel } from '@prodio/core'
 import { custoFicha, useStore } from '../../domain/store'
 import { Badge, Button, Card, EmptyState, SearchInput, Select, Table, Td, Th, Toggle, cx } from '../../ui'
 import { MargemBadge, NumInput } from './campos'

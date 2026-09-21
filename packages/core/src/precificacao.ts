@@ -1,4 +1,4 @@
-import type { Channel, Product } from './types'
+import type { Channel, Product } from './tipos'
 
 export interface ResultadoPreco {
   preco: number

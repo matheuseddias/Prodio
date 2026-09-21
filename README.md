@@ -6,7 +6,7 @@ O Prodio conecta na base de pedidos que a fábrica já usa (Base.com, Bling, Tin
 
 ## Estado atual
 
-Interface visual completa com dados de exemplo em memória. Sem backend, sem autenticação real, sem persistência. Serve para validar fluxos, telas e linguagem com a Eddias e com os primeiros parceiros.
+Interface completa com dados de exemplo em memória e a fundação do sistema real em construção: banco multi-tenant com RLS e RPCs (`supabase/`), regras de negócio puras com testes (`packages/core`) e worker de integrações (`apps/worker`). Sem variáveis de ambiente a interface roda com dados de exemplo; com `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` ela usa o banco.
 
 ## Rodar
 
@@ -27,12 +27,18 @@ Rotas principais:
 ## Estrutura
 
 ```
-src/
+apps/web/src/
   app/        shell desktop, shell do celular, navegação, tema
-  domain/     tipos, dados de exemplo, store em memória, formatação
+  domain/     store, repositório de dados (memória ou Supabase), formatação
   ui/         kit de componentes
   pages/      uma pasta por módulo
+apps/worker   Cloudflare Worker: conectores, outbox, webhooks, NF-e por XML e e-mail
+packages/core regras de negócio puras (ficha, custeio, projeção, necessidade, precificação, etiquetas, NF-e)
+supabase/     migrations, RPCs, RLS, seed e testes de banco
+docs/         plano de fundação e arquitetura
 ```
+
+Testes de banco: `PGURL=postgres://... pnpm db:test` (Postgres 16; a CI faz isso automaticamente).
 
 ## Próximos passos
 

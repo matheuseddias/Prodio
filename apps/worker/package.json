@@ -1,0 +1,25 @@
+{
+  "name": "@prodio/worker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Cloudflare Worker do Prodio: conectores de pedidos, outbox de estoque, webhooks, entrada de NF-e por XML e e-mail.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "tsc --noEmit",
+    "lint": "oxlint",
+    "test": "vitest run --passWithNoTests",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@prodio/core": "workspace:*",
+    "@supabase/supabase-js": "^2.106.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250921.0",
+    "oxlint": "^1.83.0",
+    "typescript": "~6.0.2",
+    "vitest": "^5.0.1",
+    "wrangler": "^4.136.1"
+  }
+}

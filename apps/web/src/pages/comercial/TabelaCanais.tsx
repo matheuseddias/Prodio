@@ -1,6 +1,6 @@
 import { ArrowDownToLine, ChevronRight } from 'lucide-react'
 import { brl } from '../../domain/format'
-import { avaliarPreco, precoParaMargem } from '../../domain/precificacao'
+import { avaliarPreco, precoParaMargem } from '@prodio/core'
 import { useStore } from '../../domain/store'
 import type { Channel, Product } from '../../domain/types'
 import { Badge, Button, Card, Table, Td, Th, cx } from '../../ui'

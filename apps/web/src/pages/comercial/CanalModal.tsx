@@ -1,6 +1,6 @@
 import { AlertTriangle, ArrowLeft, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
-import { PRESETS } from '../../domain/precificacao'
+import { PRESETS } from '@prodio/core'
 import type { Channel } from '../../domain/types'
 import { Button, Field, Input, Modal, cx } from '../../ui'
 import { parseNumBR, uid } from './precoUtils'

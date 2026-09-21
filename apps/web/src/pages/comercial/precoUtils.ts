@@ -1,4 +1,4 @@
-import { PRESETS } from '../../domain/precificacao'
+import { PRESETS } from '@prodio/core'
 import { brl, num } from '../../domain/format'
 import type { Channel, Product } from '../../domain/types'
 import type { Tone } from '../../ui'

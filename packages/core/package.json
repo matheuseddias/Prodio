@@ -1,0 +1,24 @@
+{
+  "name": "@prodio/core",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Regras de negócio puras do Prodio: ficha técnica, custeio, projeção, necessidade de compra, precificação, etiquetas e NF-e.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "lint": "oxlint",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.11.1"
+  },
+  "devDependencies": {
+    "oxlint": "^1.83.0",
+    "typescript": "~6.0.2",
+    "vitest": "^5.0.1"
+  }
+}
