@@ -5,7 +5,8 @@ import xmlDevolucao from './fixtures/nfe-devolucao-5202.xml?raw'
 import xmlFrete from './fixtures/nfe-frete-desconto-utrib.xml?raw'
 import xmlInvalido from './fixtures/nfe-invalido.xml?raw'
 import xmlSimples from './fixtures/nfe-simples-pcredsn.xml?raw'
-import { classificarCfop, decomporChave, dvChaveNfe, NfeParseError, parseNfeXml, validarChaveNfe } from './nfe'
+import { classificarCfop, decomporChave, dvChaveNfe, validarChaveNfe } from './nfe'
+import { NfeParseError, parseNfeXml } from './nfeXml'
 
 const CHAVE = '35260312345678000195550010000012341123456786'
 

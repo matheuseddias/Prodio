@@ -1,7 +1,8 @@
 // POST /nfe/xml — upload de XML pelo usuário (multipart ou text/xml) com Authorization: Bearer <JWT>.
 // A gravação em nfe_inbound é feita COMO O USUÁRIO (anon key + JWT, RLS e assert_member valem);
 // só o arquivo vai para o Storage via service role, e só depois que a RPC do usuário passou.
-import { NfeParseError, parseNfeXml, type NfeParsed } from '@prodio/core'
+import type { NfeParsed } from '@prodio/core'
+import { NfeParseError, parseNfeXml } from '@prodio/core/nfeXml'
 import type { Env } from '../env'
 import { Db } from '../db'
 import { log, mensagemErro } from '../log'

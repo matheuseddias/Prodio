@@ -2,7 +2,8 @@
 // unidades divergentes, CFOP de entrada, vírgula decimal, namespaces e notas denegadas.
 import xmlCompra from './fixtures/nfe-compra-5102.xml?raw'
 import xmlSimples from './fixtures/nfe-simples-pcredsn.xml?raw'
-import { classificarCfop, decomporChave, dvChaveNfe, NfeParseError, parseNfeXml, validarChaveNfe } from './nfe'
+import { classificarCfop, decomporChave, dvChaveNfe, validarChaveNfe } from './nfe'
+import { NfeParseError, parseNfeXml } from './nfeXml'
 
 const CHAVE = '35260312345678000195550010000012341123456786'
 const troca = (xml: string, de: string, para: string) => {

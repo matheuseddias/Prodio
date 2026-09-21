@@ -8,4 +8,6 @@ export * from './projecao'
 export * from './necessidade'
 export * from './etiquetas'
 export * from './nfe'
+// nfeXml fica fora do barril de propósito: traz fast-xml-parser e só roda no servidor.
+// Importe por caminho: import { parseNfeXml } from '@prodio/core/nfeXml'
 export * from './precificacao'

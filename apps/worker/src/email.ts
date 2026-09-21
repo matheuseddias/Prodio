@@ -1,7 +1,7 @@
 // Email Routing: xml@<slug>.prodio.app recebe XMLs de NF-e (anexo .xml ou .zip). Resolve o tenant pelo slug,
 // roda o parser do core, guarda o XML no Storage e chama upsert_nfe_inbound (service role, origem 'email').
 import PostalMime, { type Email } from 'postal-mime'
-import { NfeParseError, parseNfeXml } from '@prodio/core'
+import { NfeParseError, parseNfeXml } from '@prodio/core/nfeXml'
 import type { Env } from './env'
 import { Db } from './db'
 import { log, mensagemErro } from './log'

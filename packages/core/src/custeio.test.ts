@@ -3,7 +3,7 @@ import xmlChapaSt from './fixtures/nfe-chapa-st-5401.xml?raw'
 import xmlCompra from './fixtures/nfe-compra-5102.xml?raw'
 import xmlFrete from './fixtures/nfe-frete-desconto-utrib.xml?raw'
 import xmlSimples from './fixtures/nfe-simples-pcredsn.xml?raw'
-import { parseNfeXml } from './nfe'
+import { parseNfeXml } from './nfeXml'
 
 describe('custoMedioPonderado (casos portados de motores.mjs)', () => {
   it('entrada: saldo soma', () => {
