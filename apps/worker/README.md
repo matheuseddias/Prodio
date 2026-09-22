@@ -26,20 +26,23 @@ wrangler secret put SUPABASE_URL
 wrangler secret put SUPABASE_SERVICE_KEY
 wrangler secret put SUPABASE_ANON_KEY
 wrangler secret put CREDENTIALS_KEY          # ex.: openssl rand -hex 32
-wrangler secret put CORS_ORIGENS             # ver "CORS" abaixo
-wrangler secret put PUBLIC_URL               # o endereço deste worker; ver a nota abaixo
 wrangler secret put BLING_CLIENT_ID          # opcional: app global do Bling
 wrangler secret put BLING_CLIENT_SECRET
 wrangler secret put TINY_CLIENT_ID           # opcional: app global do Tiny
 wrangler secret put TINY_CLIENT_SECRET
 ```
 
-`PUBLIC_URL` e `CORS_ORIGENS` têm um ovo-e-galinha na primeira publicação: o endereço do worker só
-existe depois do primeiro `wrangler deploy`, e é ele que vai em `PUBLIC_URL`. Então a ordem é
-**deploy primeiro, segredo depois** — `wrangler deploy`, anote o `https://prodio-worker.<conta>.workers.dev`
-que o comando imprime, e só então rode os dois `secret put`. Segredo passa a valer na requisição
-seguinte, **sem** precisar publicar de novo. `wrangler secret list` confere o que já foi gravado (mostra
-os nomes, nunca os valores).
+`PUBLIC_URL` e `CORS_ORIGENS` não são segredo e ficam no bloco `[vars]` do `wrangler.toml`, não em
+`secret put`. O motivo é prático: `wrangler deploy` substitui as variáveis de texto do worker pelas
+do arquivo, então uma criada no painel desaparece na publicação seguinte — silenciosamente, e o
+sintoma é a interface parar de falar com o worker por preflight recusado. Segredo não sofre disso:
+sobrevive a qualquer deploy e passa a valer na requisição seguinte, sem republicar.
+
+Há um ovo-e-galinha na primeira publicação: o endereço do worker só existe depois do primeiro
+`wrangler deploy`, e é ele que vai em `PUBLIC_URL`. Então a ordem é **deploy primeiro, endereço
+depois** — publique, anote o `https://prodio-worker.<conta>.workers.dev` que o comando imprime,
+escreva os dois valores no `wrangler.toml` e publique de novo. `wrangler secret list` confere os
+segredos já gravados (mostra os nomes, nunca os valores).
 
 Para `wrangler dev`, crie `.dev.vars` com as mesmas chaves (não versionar).
 

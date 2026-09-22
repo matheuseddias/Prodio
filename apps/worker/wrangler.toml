@@ -4,11 +4,18 @@ compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
 
 # Segredos (wrangler secret put): SUPABASE_URL, SUPABASE_SERVICE_KEY, SUPABASE_ANON_KEY, CREDENTIALS_KEY,
-# BLING_CLIENT_ID, BLING_CLIENT_SECRET, TINY_CLIENT_ID, TINY_CLIENT_SECRET, PUBLIC_URL, CORS_ORIGENS.
-# Ver README.md. Sem CORS_ORIGENS, só localhost chama o worker pelo navegador: a interface publicada
-# no Cloudflare Pages falha no preflight.
+# BLING_CLIENT_ID, BLING_CLIENT_SECRET, TINY_CLIENT_ID, TINY_CLIENT_SECRET. Ver README.md.
+# Segredo sobrevive a um deploy; variável de texto criada no painel, não. `wrangler deploy` substitui
+# a lista de [vars] pela daqui, então o que for texto mora neste arquivo ou some na publicação seguinte.
 # Service role só em cron, webhook e e-mail. Rotas acionadas por usuário (/nfe/xml, /connectors/*) usam
 # a anon key + o JWT do próprio usuário, então RLS e assert_member valem.
+
+# Não são segredo: endereço público do worker e a lista de sites que podem chamá-lo pelo navegador.
+# Ficam aqui para a publicação ser reprodutível. Sem CORS_ORIGENS o worker só aceita localhost e a
+# interface publicada falha no preflight; sem PUBLIC_URL o OAuth do Tiny e do Bling não fecha.
+[vars]
+PUBLIC_URL = "https://prodio-worker.matheus-ea1.workers.dev"
+CORS_ORIGENS = "https://app.prodio.com.br,https://prodio-web.pages.dev,https://*.prodio-web.pages.dev,http://localhost:5173"
 
 [triggers]
 crons = [
