@@ -1,0 +1,24 @@
+# Cloudflare Pages — cabeçalhos por rota.
+# Sem CSP de propósito: a URL do Supabase muda por projeto e uma connect-src errada
+# derruba o login sem aviso. Se for ligar CSP, faça no painel (Rules > Transform).
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  # camera=(self): o /chao lê QR code pela câmera do celular.
+  Permissions-Policy: camera=(self), microphone=(), geolocation=(), payment=(), usb=()
+
+# Arquivos com hash no nome: nunca mudam de conteúdo, podem ficar no cache para sempre.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Estes precisam ser revalidados sempre, senão o PWA fica preso numa versão antiga.
+/index.html
+  Cache-Control: no-cache
+/sw.js
+  Cache-Control: no-cache
+/registerSW.js
+  Cache-Control: no-cache
+/manifest.webmanifest
+  Cache-Control: no-cache

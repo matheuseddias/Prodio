@@ -1,0 +1,6 @@
+# Cloudflare Pages — interface do Prodio (apps/web).
+# O worker tem o wrangler.toml dele em apps/worker; este aqui é só do site estático.
+# `wrangler pages deploy` lê pages_build_output_dir e sobe o conteúdo de dist/.
+name = "prodio-web"
+pages_build_output_dir = "dist"
+compatibility_date = "2026-09-22"

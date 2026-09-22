@@ -1,0 +1,6 @@
+# Cloudflare Pages — roteamento de SPA.
+# O app usa BrowserRouter: /producao/etiquetas não é um arquivo no disco.
+# Sem esta regra, recarregar a página (F5) ou abrir o link direto dá 404.
+# Arquivo estático existente ganha da regra; todo o resto é reescrito (200, não 301)
+# para o index.html e o React Router resolve a rota no navegador.
+/*    /index.html   200

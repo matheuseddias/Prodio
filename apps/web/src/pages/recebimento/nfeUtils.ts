@@ -148,8 +148,14 @@ export function similaridade(a: string, b: string): number {
 /** Slug curto do tenant: primeira palavra do nome, sem acento. */
 export const slugTenant = (nome: string) => norm(nome).split(/[^a-z0-9]+/).filter(Boolean)[0] ?? 'empresa'
 
-/** Endereço que recebe XML por e-mail: xml@<slug>.prodio.app (sempre ativo). */
-export const emailXml = (nomeTenant: string) => `xml@${slugTenant(nomeTenant)}.prodio.app`
+/**
+ * Domínio que recebe XML de NF-e por e-mail. Tem que ser o mesmo domínio configurado
+ * no Email Routing da Cloudflare que aponta para o worker (apps/worker/src/email.ts).
+ */
+export const DOMINIO_EMAIL_XML = (import.meta.env.VITE_DOMINIO_EMAIL_XML ?? 'prodio.com.br').trim().replace(/^@/, '')
+
+/** Endereço que recebe XML por e-mail: xml@<slug>.<domínio> (sempre ativo). */
+export const emailXml = (nomeTenant: string) => `xml@${slugTenant(nomeTenant)}.${DOMINIO_EMAIL_XML}`
 
 // ---- Nota a partir da chave + OC (consulta no provedor / recebimento às cegas) ----
 

@@ -9,7 +9,9 @@
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
-    "db:test": "bash supabase/tests/run.sh"
+    "db:test": "bash supabase/tests/run.sh",
+    "deploy:web": "pnpm --filter @prodio/web deploy",
+    "deploy:worker": "pnpm --filter @prodio/worker deploy"
   },
   "devDependencies": {
     "typescript": "~6.0.2"

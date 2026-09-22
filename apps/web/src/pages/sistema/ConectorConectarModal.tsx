@@ -3,8 +3,9 @@ import { useState, type ReactNode } from 'react'
 import { useStore } from '../../domain/store'
 import type { Connector } from '../../domain/types'
 import { Button, Field, Input, Modal } from '../../ui'
+import { workerUrl } from '../../data/supabaseClient'
 import { Nota } from './ConectorCard'
-import { META } from './ConectorMeta'
+import { META, urlRetornoOauth } from './ConectorMeta'
 
 // ---------- Modal de conexão por plataforma ----------
 export function ConectorConectarModal({ c, onClose }: { c: Connector; onClose: () => void }) {
@@ -108,7 +109,7 @@ export function ConectorConectarModal({ c, onClose }: { c: Connector; onClose: (
             <ol className="space-y-2 text-sm">
               {[
                 'No Tiny, abra Configurações → Aplicativos → Criar aplicativo (privado).',
-                'Dê o nome "Prodio" e informe a URL de retorno: https://app.prodio.app/oauth/tiny.',
+                `Dê o nome "Prodio" e informe a URL de retorno: ${urlRetornoOauth('tiny')}.`,
                 'Copie o client_id e o client_secret gerados e cole abaixo.',
                 'Clique em Autorizar: você entra no Tiny, aceita e volta conectado.',
               ].map((t, i) => (
@@ -126,6 +127,7 @@ export function ConectorConectarModal({ c, onClose }: { c: Connector; onClose: (
                 <Input type="password" value={campos.clientSecret ?? ''} onChange={(e) => set('clientSecret', e.target.value)} className="font-mono" />
               </Field>
             </div>
+            {!workerUrl && <Nota tone="warn">A URL de retorno acima está usando o endereço desta janela. Defina VITE_WORKER_URL com o endereço público do worker antes de cadastrar o aplicativo no Tiny.</Nota>}
             <Nota>{m.webhooks} O Prodio consulta pedidos em intervalos e busca o detalhe de cada pedido para obter os itens.</Nota>
           </div>
         )

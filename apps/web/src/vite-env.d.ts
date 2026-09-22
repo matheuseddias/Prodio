@@ -4,6 +4,7 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL?: string
   readonly VITE_SUPABASE_ANON_KEY?: string
   readonly VITE_WORKER_URL?: string
+  readonly VITE_DOMINIO_EMAIL_XML?: string
   readonly VITE_HASH_ROUTER?: string
 }
 

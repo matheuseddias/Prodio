@@ -7,7 +7,7 @@ import { syncPedidos } from './jobs/syncPedidos'
 import { aplicarOutbox } from './jobs/aplicarOutbox'
 import { auditor } from './jobs/auditor'
 import { log, mensagemErro } from './log'
-import { rotaOauthCallback, rotaOauthStart, rotaSetCredentials } from './rotas/credenciais'
+import { rotaOauthCallback, rotaOauthStart, rotaSetCredentials, type PlataformaOauth } from './rotas/credenciais'
 import { rotaNfeXml } from './rotas/nfe'
 import { rotaWebhookBling } from './rotas/webhooks'
 import { erro, json } from './rotas/util'
@@ -20,8 +20,8 @@ const ROTAS: { metodo: string; padrao: RegExp; handler: (req: Request, env: Env,
   { metodo: 'POST', padrao: new RegExp(`^/webhooks/bling/(${UUID})$`), handler: (req, env, ctx, [id]) => rotaWebhookBling(req, env, ctx, id) },
   { metodo: 'POST', padrao: /^\/nfe\/xml$/, handler: (req, env) => rotaNfeXml(req, env) },
   { metodo: 'POST', padrao: new RegExp(`^/connectors/(${UUID})/credentials$`), handler: (req, env, _ctx, [id]) => rotaSetCredentials(req, env, id) },
-  { metodo: 'POST', padrao: new RegExp(`^/connectors/(${UUID})/bling/oauth/start$`), handler: (req, env, _ctx, [id]) => rotaOauthStart(req, env, id) },
-  { metodo: 'GET', padrao: /^\/connectors\/bling\/oauth\/callback$/, handler: (req, env) => rotaOauthCallback(req, env) },
+  { metodo: 'POST', padrao: new RegExp(`^/connectors/(${UUID})/(bling|tiny)/oauth/start$`), handler: (req, env, _ctx, [id, p]) => rotaOauthStart(req, env, id, p as PlataformaOauth) },
+  { metodo: 'GET', padrao: /^\/connectors\/(bling|tiny)\/oauth\/callback$/, handler: (req, env, _ctx, [p]) => rotaOauthCallback(req, env, p as PlataformaOauth) },
 ]
 
 export function resolverRota(metodo: string, caminho: string): { handler: (typeof ROTAS)[number]['handler']; params: string[] } | null {

@@ -1,18 +1,25 @@
 // Credenciais de conectores. O usuário (admin do tenant, conferido com o próprio JWT + RLS) manda o segredo;
-// o worker cifra via worker_set_credentials com CREDENTIALS_KEY. Inclui o fluxo OAuth do Bling.
+// o worker cifra via worker_set_credentials com CREDENTIALS_KEY. Inclui os fluxos OAuth do Bling e do Tiny.
 import type { Env } from '../env'
 import { Db, type Credenciais } from '../db'
 import { URL_BLING_AUTORIZAR, hmacSha256Hex, oauthTokenBling, type CredenciaisBling } from '../conectores/bling'
+import { MAPA_TINY } from '../conectores/tinyMapa'
+import { oauthTokenTiny } from '../conectores/tiny'
 import { log, mensagemErro } from '../log'
 import { ErroRota, erro, exigirAdminDoConector, exigirUsuario, json, tratarErro } from './util'
 
 const CHAVES_PERMITIDAS: Record<string, string[]> = {
   baselinker: ['token', 'inventory_id', 'warehouse_id'],
   bling: ['client_id', 'client_secret', 'access_token', 'refresh_token', 'expires_at'],
-  tiny: ['token'],
+  tiny: ['client_id', 'client_secret', 'access_token', 'refresh_token', 'expires_at'],
   omie: ['app_key', 'app_secret'],
   magis5: ['token'],
 }
+
+// Plataformas em que o segredo vem de um fluxo OAuth: gravar client_id/secret não pode apagar os tokens.
+export type PlataformaOauth = 'bling' | 'tiny'
+const OAUTH: PlataformaOauth[] = ['bling', 'tiny']
+const ehOauth = (p: string): p is PlataformaOauth => (OAUTH as string[]).includes(p)
 
 export function filtrarPayload(plataforma: string, corpo: unknown): Credenciais {
   if (!corpo || typeof corpo !== 'object' || Array.isArray(corpo)) throw new ErroRota(400, 'corpo deve ser um objeto JSON')
@@ -36,8 +43,8 @@ export async function rotaSetCredentials(req: Request, env: Env, connectorId: st
     const u = exigirUsuario(req, env)
     const c = await exigirAdminDoConector(u, connectorId)
     const payload = filtrarPayload(c.plataforma, await req.json().catch(() => null))
-    // Bling: trocar client_id/secret não deve apagar tokens já obtidos (e vice-versa).
-    const atuais = c.plataforma === 'bling' ? ((await db.getCredentials(c.id)) ?? {}) : {}
+    // OAuth: trocar client_id/secret não deve apagar tokens já obtidos (e vice-versa).
+    const atuais = ehOauth(c.plataforma) ? ((await db.getCredentials(c.id)) ?? {}) : {}
     await db.setCredentials(c.tenant_id, c.id, { ...atuais, ...payload })
     log('info', 'credenciais.gravadas', { connector: c.id, tenant: c.tenant_id, plataforma: c.plataforma, user: u.userId, campos: Object.keys(payload) })
     return json({ ok: true, campos: Object.keys(payload) })
@@ -61,33 +68,72 @@ export async function verificarState(state: string, chave: string, agora = Date.
   return esperado === mac ? connectorId : null
 }
 
-function appDoConector(creds: CredenciaisBling | null, env: Env): { clientId: string; clientSecret: string } {
-  const clientId = creds?.client_id ?? env.BLING_CLIENT_ID
-  const clientSecret = creds?.client_secret ?? env.BLING_CLIENT_SECRET
-  if (!clientId || !clientSecret) throw new ErroRota(500, 'client_id/client_secret do Bling não configurados')
+// URL de retorno do OAuth. Precisa estar cadastrada igualzinha no app da plataforma.
+export function redirectUri(env: Env, plataforma: PlataformaOauth): string {
+  return `${(env.PUBLIC_URL ?? '').replace(/\/$/, '')}/connectors/${plataforma}/oauth/callback`
+}
+
+interface DefinicaoOauth {
+  nome: string
+  autorizar: string
+  envId?: string
+  envSecret?: string
+  // O Tiny (Keycloak) exige redirect_uri no consentimento e na troca do code; o Bling não.
+  usaRedirect: boolean
+  trocar: (app: { clientId: string; clientSecret: string }, params: Record<string, string>) => Promise<Credenciais>
+}
+
+function definicao(env: Env, plataforma: PlataformaOauth): DefinicaoOauth {
+  if (plataforma === 'tiny') {
+    return {
+      nome: 'Tiny',
+      autorizar: MAPA_TINY.autorizar,
+      envId: env.TINY_CLIENT_ID,
+      envSecret: env.TINY_CLIENT_SECRET,
+      usaRedirect: true,
+      trocar: async (app, params) => (await oauthTokenTiny(app, params)) as Credenciais,
+    }
+  }
+  return {
+    nome: 'Bling',
+    autorizar: URL_BLING_AUTORIZAR,
+    envId: env.BLING_CLIENT_ID,
+    envSecret: env.BLING_CLIENT_SECRET,
+    usaRedirect: false,
+    trocar: async (app, params) => (await oauthTokenBling(app, params)) as Credenciais,
+  }
+}
+
+function appDoConector(creds: CredenciaisBling | null, def: DefinicaoOauth): { clientId: string; clientSecret: string } {
+  const clientId = creds?.client_id ?? def.envId
+  const clientSecret = creds?.client_secret ?? def.envSecret
+  if (!clientId || !clientSecret) throw new ErroRota(500, `client_id/client_secret do ${def.nome} não configurados`)
   return { clientId, clientSecret }
 }
 
-// POST /connectors/:id/bling/oauth/start → {url} para o admin autorizar no Bling.
-export async function rotaOauthStart(req: Request, env: Env, connectorId: string, db = new Db(env)): Promise<Response> {
+// POST /connectors/:id/:plataforma/oauth/start → {url} para o admin autorizar na plataforma.
+export async function rotaOauthStart(req: Request, env: Env, connectorId: string, plataforma: PlataformaOauth, db = new Db(env)): Promise<Response> {
   try {
     const u = exigirUsuario(req, env)
     const c = await exigirAdminDoConector(u, connectorId)
-    if (c.plataforma !== 'bling') return erro(400, 'OAuth só se aplica ao Bling')
-    const app = appDoConector((await db.getCredentials(c.id)) as CredenciaisBling | null, env)
+    if (c.plataforma !== plataforma) return erro(400, `este conector não é ${definicao(env, plataforma).nome}`)
+    const def = definicao(env, plataforma)
+    const app = appDoConector((await db.getCredentials(c.id)) as CredenciaisBling | null, def)
     const state = await assinarState(c.id, env.CREDENTIALS_KEY)
-    const url = new URL(URL_BLING_AUTORIZAR)
+    const url = new URL(def.autorizar)
     url.searchParams.set('response_type', 'code')
     url.searchParams.set('client_id', app.clientId)
     url.searchParams.set('state', state)
+    if (def.usaRedirect) url.searchParams.set('redirect_uri', redirectUri(env, plataforma))
     return json({ ok: true, url: url.toString() })
   } catch (e) {
     return tratarErro(e)
   }
 }
 
-// GET /connectors/bling/oauth/callback?code=&state= — troca o code por tokens e grava cifrado.
-export async function rotaOauthCallback(req: Request, env: Env, db = new Db(env)): Promise<Response> {
+// GET /connectors/:plataforma/oauth/callback?code=&state= — troca o code por tokens e grava cifrado.
+export async function rotaOauthCallback(req: Request, env: Env, plataforma: PlataformaOauth, db = new Db(env)): Promise<Response> {
+  const def = definicao(env, plataforma)
   const url = new URL(req.url)
   const code = url.searchParams.get('code')
   const state = url.searchParams.get('state') ?? ''
@@ -96,17 +142,19 @@ export async function rotaOauthCallback(req: Request, env: Env, db = new Db(env)
   if (!connectorId) return pagina(400, 'Link expirado ou inválido. Recomece a conexão no Prodio.')
   try {
     const row = await db.getConector(connectorId)
-    if (!row || row.plataforma !== 'bling') return pagina(404, 'Conector não encontrado.')
+    if (!row || row.plataforma !== plataforma) return pagina(404, 'Conector não encontrado.')
     const atuais = ((await db.getCredentials(row.id)) ?? {}) as CredenciaisBling
-    const app = appDoConector(atuais, env)
-    const tokens = await oauthTokenBling(app, { grant_type: 'authorization_code', code })
+    const app = appDoConector(atuais, def)
+    const params: Record<string, string> = { grant_type: 'authorization_code', code }
+    if (def.usaRedirect) params.redirect_uri = redirectUri(env, plataforma)
+    const tokens = await def.trocar(app, params)
     await db.setCredentials(row.tenant_id, row.id, { ...atuais, ...tokens } as Credenciais)
     await db.setSyncState(row.id, null, true, null)
-    log('info', 'bling.oauth.ok', { connector: row.id, tenant: row.tenant_id })
-    return pagina(200, 'Bling conectado. Pode fechar esta janela e voltar ao Prodio.')
+    log('info', 'oauth.ok', { plataforma, connector: row.id, tenant: row.tenant_id })
+    return pagina(200, `${def.nome} conectado. Pode fechar esta janela e voltar ao Prodio.`)
   } catch (e) {
-    log('error', 'bling.oauth.falha', { connector: connectorId, erro: mensagemErro(e) })
-    return pagina(502, 'Não foi possível concluir a conexão com o Bling. Tente de novo.')
+    log('error', 'oauth.falha', { plataforma, connector: connectorId, erro: mensagemErro(e) })
+    return pagina(502, `Não foi possível concluir a conexão com o ${def.nome}. Tente de novo.`)
   }
 }
 

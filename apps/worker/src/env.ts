@@ -9,6 +9,10 @@ export interface Env {
   // App OAuth do Bling (global). Um tenant pode sobrescrever com client_id/client_secret nas credenciais.
   BLING_CLIENT_ID?: string
   BLING_CLIENT_SECRET?: string
+  // App OAuth do Tiny (Olist). O app do Tiny é privado por seller: normalmente o client_id/
+  // client_secret vem das credenciais do conector; estes só valem como fallback global.
+  TINY_CLIENT_ID?: string
+  TINY_CLIENT_SECRET?: string
   // URL pública do worker, usada no redirect_uri do OAuth (ex.: https://worker.prodio.app).
   PUBLIC_URL?: string
 }

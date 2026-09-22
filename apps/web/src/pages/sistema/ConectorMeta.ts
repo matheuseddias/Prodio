@@ -1,6 +1,18 @@
+import { workerUrl } from '../../data/supabaseClient'
 import type { Connector } from '../../domain/types'
 
 export type Plataforma = Connector['plataforma']
+
+/**
+ * URL de retorno (redirect_uri) que o cliente cadastra no hub dele.
+ * O callback do OAuth é no worker, nunca na interface: é o worker que guarda o
+ * client_secret e troca o código pelo token. Fora do worker cai no origin da
+ * janela, que é o que serve durante o desenvolvimento.
+ */
+export function urlRetornoOauth(plataforma: Plataforma): string {
+  const base = workerUrl || (typeof window === 'undefined' ? '' : window.location.origin)
+  return `${base}/connectors/${plataforma}/oauth/callback`
+}
 
 // ---------- Metadados por plataforma (fatos de integração) ----------
 export const META: Record<

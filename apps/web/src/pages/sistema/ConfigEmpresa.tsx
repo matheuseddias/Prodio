@@ -4,6 +4,7 @@ import { useStore } from '../../domain/store'
 import { cnpjFmt } from '../../domain/format'
 import type { Tenant } from '../../domain/types'
 import { Button, Card, Input, Select, Toggle } from '../../ui'
+import { DOMINIO_EMAIL_XML } from '../recebimento/nfeUtils'
 import { Row, SaveBar } from './ConfigShared'
 
 export default function ConfigEmpresa() {
@@ -17,7 +18,7 @@ export default function ConfigEmpresa() {
     .replace(/[̀-ͯ]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '')
-  const email = `xml@${slug}.prodio.app`
+  const email = `xml@${slug}.${DOMINIO_EMAIL_XML}`
   const copiar = () => {
     try {
       void navigator.clipboard?.writeText(email)
