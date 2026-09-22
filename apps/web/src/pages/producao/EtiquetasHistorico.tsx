@@ -8,8 +8,10 @@ import { Badge, Button, Card, EmptyState, Table, Td, Th, cx } from '../../ui'
 
 export function EtiquetasHistorico({ hoje, onReimprimir }: { hoje: string; onReimprimir: (l: Label) => void }) {
   const s = useStore()
-  const { product } = useLookups()
+  const { productRef } = useLookups()
 
+  // A etiqueta do dia continua na lista mesmo se o produto tiver sido excluído depois de impressa:
+  // ela existe no chão de fábrica e precisa poder ser anulada. Quem sumiu aparece como removido.
   const historico = useMemo(() => {
     const grupos = new Map<string, Label[]>()
     for (const l of s.labels) {
@@ -18,8 +20,8 @@ export function EtiquetasHistorico({ hoje, onReimprimir }: { hoje: string; onRei
       arr.push(l)
       grupos.set(l.productId, arr)
     }
-    return [...grupos.entries()].map(([pid, ls]) => ({ p: product(pid)!, labels: ls.sort((a, b) => b.seq - a.seq) }))
-  }, [s.labels, hoje, product])
+    return [...grupos.entries()].map(([pid, ls]) => ({ ref: productRef(pid), labels: ls.sort((a, b) => b.seq - a.seq) }))
+  }, [s.labels, hoje, productRef])
 
   const bipadas = useMemo(() => new Set(s.scans.filter((x) => x.tipo === 'produzido').map((x) => x.serial)), [s.scans])
 
@@ -41,11 +43,12 @@ export function EtiquetasHistorico({ hoje, onReimprimir }: { hoje: string; onRei
           {historico.map((g) => {
             const anuladas = g.labels.filter((l) => l.status === 'anulada').length
             return (
-              <details key={g.p.id} className="group">
+              <details key={g.ref.id} className="group">
                 <summary className="flex items-center justify-between gap-3 px-5 py-3 cursor-pointer hover:bg-surface-2/60 list-none">
                   <div className="min-w-0">
-                    <span className="font-medium">{g.p.nome}</span> <span className="uppercase text-accent-text">· {g.p.atributos.cor}</span>
-                    <span className="ml-2 text-[12px] text-muted font-mono">{g.p.sku}</span>
+                    <span className={cx('font-medium', g.ref.removido && 'text-muted italic')}>{g.ref.nome}</span>
+                    {g.ref.cor && <span className="uppercase text-accent-text"> · {g.ref.cor}</span>}
+                    <span className="ml-2 text-[12px] text-muted font-mono">{g.ref.sku}</span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0 text-[12px] text-muted tabular-nums">
                     <span>{num(g.labels.length)} seriais</span>

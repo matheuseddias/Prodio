@@ -30,7 +30,7 @@ function SaudeItem({ to, icon, label, count, tone }: { to: string; icon: ReactNo
 
 export default function Painel() {
   const s = useStore()
-  const { product } = useLookups()
+  const { productRef } = useLookups()
   const nav = useNavigate()
   const hoje = hojeISO()
 
@@ -110,14 +110,15 @@ export default function Painel() {
           ) : (
             <ul className="space-y-3">
               {topLinha.map((l) => {
-                const p = product(l.productId)
+                const ref = productRef(l.productId)
                 const r = l.projetado > 0 ? l.bipado / l.projetado : 0
                 return (
                   <li key={l.productId}>
                     <Link to="/producao/linha-de-hoje" className="block rounded-lg -mx-2 px-2 py-1 hover:bg-surface-2">
                       <div className="flex items-baseline justify-between gap-3 text-sm">
                         <span className="truncate">
-                          {p?.nome} <span className="text-muted">· {p?.atributos.cor}</span>
+                          {ref.nome}
+                          {ref.cor && <span className="text-muted"> · {ref.cor}</span>}
                         </span>
                         <span className="tabular-nums shrink-0">
                           {num(l.bipado)} <span className="text-muted">/ {num(l.projetado)}</span>

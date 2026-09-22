@@ -4,7 +4,7 @@ import { num } from '../../domain/format'
 import type { LabelKind } from '../../domain/types'
 import { Badge, Button, Card } from '../../ui'
 import { EtiquetaImpressa } from './EtiquetaImpressa'
-import { NOME_TIPO, type ItemPreview, type Tamanho } from './etiquetas'
+import { NOME_TIPO, type ItemPreview, type Tamanho } from './etiquetasUtils'
 
 export interface GrupoPreview {
   tipo: LabelKind

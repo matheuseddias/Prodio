@@ -80,7 +80,7 @@ export interface LabelRow {
   dia: string
   seq: number
 }
-export const labelDoBanco = (r: LabelRow): Label => ({ serial: r.serial, productId: r.product_id, tipo: r.tipo, quantidade: num(r.quantidade, 1), status: r.status, dia: r.dia, seq: num(r.seq) })
+export const labelDoBanco = (r: LabelRow): Label => ({ serial: strOpt(r.serial) ?? '', productId: r.product_id, tipo: r.tipo, quantidade: num(r.quantidade, 1), status: r.status, dia: strOpt(r.dia) ?? '', seq: num(r.seq) })
 
 // --- Bipes -----------------------------------------------------------------
 export interface ScanRow {
@@ -114,8 +114,9 @@ export function scansDoBanco(rows: ScanRow[], nomes: Record<string, string> = {}
       etapa: r.stages?.codigo ?? 'final',
       tipo: r.event_type,
       quantidade: r.event_type === 'estorno' ? -Math.abs(num(r.quantidade, 1)) : num(r.quantidade, 1),
-      em: r.scanned_at,
-      competencia: r.competencia,
+      // `em` e `competencia` são ordenados e comparados como texto na tela: garanta string aqui.
+      em: strOpt(r.scanned_at) ?? '',
+      competencia: strOpt(r.competencia) ?? '',
       sincronizado: true,
     }))
 }

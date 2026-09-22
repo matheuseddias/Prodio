@@ -5,6 +5,7 @@ import { relativo } from '../domain/format'
 import { useStore } from '../domain/store'
 import { Badge, Button, cx } from '../ui'
 import { useAuth } from './auth'
+import ErrorBoundary from './ErrorBoundary'
 import { NAV } from './nav'
 import { useTheme } from './theme'
 
@@ -291,7 +292,10 @@ export default function AppShell() {
         ) : (
           <main key={loc.pathname} className="flex-1 overflow-y-auto">
             <div className="mx-auto w-full max-w-[1280px] px-4 sm:px-6 py-5 sm:py-6">
-              <Outlet />
+              {/* Erro de uma tela fica contido aqui: o menu e o cabeçalho continuam de pé e o usuário navega para outra. */}
+              <ErrorBoundary variante="rota" chaveReset={loc.pathname} onde={loc.pathname}>
+                <Outlet />
+              </ErrorBoundary>
             </div>
           </main>
         )}

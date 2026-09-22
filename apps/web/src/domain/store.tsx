@@ -10,6 +10,7 @@ import { MemoryRepo, snapshotExemplo } from '../data/memoryRepo'
 import { novoId, type ModoDados, type OperadorInput, type Patch, type Repo, type Retorno, type ScanResult, type Snapshot } from '../data/repo'
 import { modoDados, supabase } from '../data/supabaseClient'
 import { SupabaseRepo } from '../data/supabaseRepo'
+import { produtoRef } from './produtoRef'
 import { useFilaBipes } from './storeBipes'
 import type { Bom, Channel, Connector, Device, Label, Material, Member, NfeInbound, Product, PurchaseOrder, StockMove, Supplier, Tenant } from './types'
 
@@ -186,7 +187,13 @@ export function StoreProvider({ children, repo: repoProp }: { children: ReactNod
     executar((a) => local.addStockMove(a, m, id), () => repo.addStockMove(m, { id }))
   }, [executar, repo])
 
-  const upsertProduct = useCallback<Actions['upsertProduct']>((p) => executar((a) => ({ ...a, products: local.upsertLista(a.products, p) }), () => repo.upsertProduct(p)), [executar, repo])
+  // Produto que entra no estado tem `atributos` e `aliases` garantidos: as telas leem p.atributos.cor
+  // direto, e um upsert otimista (formulário, importação de planilha, conector) sem esses campos
+  // derrubava a tela. A leitura do banco já normaliza no mapeador; aqui fecha o outro caminho.
+  const upsertProduct = useCallback<Actions['upsertProduct']>((p) => {
+    const produto: Product = { ...p, atributos: p.atributos ?? {}, aliases: p.aliases ?? [] }
+    executar((a) => ({ ...a, products: local.upsertLista(a.products, produto) }), () => repo.upsertProduct(produto))
+  }, [executar, repo])
   const upsertMaterial = useCallback<Actions['upsertMaterial']>((m) => executar((a) => ({ ...a, materials: local.upsertLista(a.materials, m) }), () => repo.upsertMaterial(m)), [executar, repo])
   const upsertSupplier = useCallback<Actions['upsertSupplier']>((x) => executar((a) => ({ ...a, suppliers: local.upsertLista(a.suppliers, x) }), () => repo.upsertSupplier(x)), [executar, repo])
   const saveBom = useCallback<Actions['saveBom']>((b) => executar((a) => local.saveBom(a, b), () => repo.saveBom(b)), [executar, repo])
@@ -244,6 +251,8 @@ export function useLookups() {
   return useMemo(
     () => ({
       product: (id: string) => s.products.find((p) => p.id === id),
+      /** Produto pronto para exibir, inclusive quando o id não existe mais (ver domain/produtoRef). */
+      productRef: (id: string) => produtoRef(id, s.products.find((p) => p.id === id)),
       material: (id: string) => s.materials.find((m) => m.id === id),
       supplier: (id?: string) => (id ? s.suppliers.find((x) => x.id === id) : undefined),
       bom: (productId: string) => s.boms.find((b) => b.productId === productId && b.ativa),

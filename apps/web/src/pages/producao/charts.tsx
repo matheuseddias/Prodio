@@ -2,9 +2,15 @@
 import { num, pct } from '../../domain/format'
 
 const diaCurto = (iso: string) => {
-  const d = new Date(iso + 'T12:00:00')
+  const d = new Date(`${iso}T12:00:00`)
+  if (Number.isNaN(d.getTime())) return '—'
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
 }
+
+/** Geometria de SVG não aceita NaN: um valor torto vira 0 em vez de um gráfico quebrado com o console cheio de erro. */
+const n0 = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+/** Marcações do eixo sem repetição: max pequeno gerava duas marcas iguais (e chave duplicada no React). */
+const marcas = (max: number) => [...new Set([0, 0.5, 1].map((f) => Math.round(max * f)))]
 
 export interface BarSerie {
   nome: string
@@ -16,18 +22,19 @@ const fillOf = { accent: 'fill-accent', faint: 'fill-border', info: 'fill-info',
 const dotOf = { accent: 'bg-accent', faint: 'bg-border', info: 'bg-info', ok: 'bg-ok' }
 
 /** Barras agrupadas (1 ou 2 séries) com legenda e rótulos de eixo. */
-export function GroupedBars({ dias, series, altura = 150 }: { dias: string[]; series: BarSerie[]; altura?: number }) {
+export function GroupedBars({ dias, series: entrada, altura = 150 }: { dias: string[]; series: BarSerie[]; altura?: number }) {
   const W = 600
   const H = altura
   const padL = 34
   const padB = 22
   const padT = 8
+  const series = entrada.map((s) => ({ ...s, valores: s.valores.map(n0) }))
   const max = Math.max(1, ...series.flatMap((s) => s.valores))
-  const step = (W - padL) / dias.length
+  const step = (W - padL) / Math.max(1, dias.length)
   const grupo = step * 0.68
   const barW = grupo / series.length
   const y = (v: number) => padT + (H - padT - padB) * (1 - v / max)
-  const ticks = [0, 0.5, 1].map((f) => Math.round(max * f))
+  const ticks = marcas(max)
   // Rótulos de dia: todos até 7 dias; a cada 2 até 14; depois ~8 rótulos no total.
   const cada = Math.max(1, Math.ceil(dias.length / 8))
   return (
@@ -87,22 +94,22 @@ export function GroupedBars({ dias, series, altura = 150 }: { dias: string[]; se
 }
 
 /** Histograma simples por hora (0–23), com destaque no máximo e, opcionalmente, no gargalo. */
-export function HourHistogram({ porHora, altura = 140, gargalo }: { porHora: number[]; altura?: number; gargalo?: number }) {
+export function HourHistogram({ porHora: entrada, altura = 140, gargalo }: { porHora: number[]; altura?: number; gargalo?: number }) {
   const W = 600
   const H = altura
   const padL = 30
   const padB = 20
   const padT = 8
+  const porHora = entrada.map(n0)
   const max = Math.max(1, ...porHora)
   const step = (W - padL) / 24
   const y = (v: number) => padT + (H - padT - padB) * (1 - v / max)
   const pico = porHora.indexOf(max)
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img" aria-label="Bipes por hora">
-      {[0, 0.5, 1].map((f) => {
-        const t = Math.round(max * f)
+      {marcas(max).map((t) => {
         return (
-          <g key={f}>
+          <g key={t}>
             <line x1={padL} x2={W} y1={y(t)} y2={y(t)} className="stroke-border" strokeWidth={1} />
             <text x={padL - 6} y={y(t) + 3} textAnchor="end" fontSize={10} className="fill-faint tabular-nums">
               {num(t)}
@@ -138,13 +145,14 @@ export function HourHistogram({ porHora, altura = 140, gargalo }: { porHora: num
 }
 
 /** Linha de aderência (produzido ÷ projetado) ao longo do tempo, com meta em 100%. `null` = dia sem projeção (quebra a linha). */
-export function AderenciaLine({ dias, valores, altura = 150 }: { dias: string[]; valores: (number | null)[]; altura?: number }) {
+export function AderenciaLine({ dias, valores: entrada, altura = 150 }: { dias: string[]; valores: (number | null)[]; altura?: number }) {
   const W = 600
   const H = altura
   const padL = 38
   const padR = 8
   const padB = 22
   const padT = 10
+  const valores = entrada.map((v) => (typeof v === 'number' && Number.isFinite(v) ? v : null))
   const validos = valores.filter((v): v is number => v !== null)
   const max = Math.max(1.1, ...validos.map((v) => Math.ceil(v * 10) / 10))
   const min = Math.min(0.7, ...validos.map((v) => Math.floor(v * 10) / 10))

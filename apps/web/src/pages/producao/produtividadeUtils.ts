@@ -1,5 +1,6 @@
 // Cálculos da aba Produtividade. Histórico além dos 14 dias do mock é gerado de forma determinística,
 // repetindo o padrão semanal de producao14d (dados de exemplo até existir backend).
+import { diaISO } from '../../domain/format'
 import { producao14d } from '../../domain/mock'
 import type { DailyPlanLine, ScanEvent } from '../../domain/types'
 import type { Tone } from '../../ui'
@@ -16,7 +17,6 @@ export type Periodo = (typeof PERIODOS)[number]
 /** Turno padrão da linha (07:00–16:00). Usado para peças por hora trabalhada no período. */
 export const HORAS_TURNO = 9
 
-const isoDia = (d: Date) => d.toISOString().slice(0, 10)
 const hash = (s: string) => {
   let h = 7
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
@@ -41,7 +41,7 @@ export function historicoProducao(dias: number, hojeReal?: { projetado: number; 
   for (let i = dias - 1; i >= 0; i--) {
     const dt = new Date(hoje)
     dt.setDate(dt.getDate() - i)
-    const dia = isoDia(dt)
+    const dia = diaISO(dt)
     const real = porDia.get(dia)
     if (real) {
       out.push({ ...real })
@@ -84,7 +84,11 @@ export const bipesDoDia = (scans: ScanEvent[], dia: string) => scans.filter((x) 
 
 export function porHoraDe(scans: ScanEvent[]): number[] {
   const h = Array.from({ length: 24 }, () => 0)
-  for (const x of scans) h[new Date(x.em).getHours()] += x.quantidade
+  for (const x of scans) {
+    const hora = new Date(x.em).getHours()
+    if (Number.isNaN(hora)) continue // bipe sem hora válida não entra no histograma nem corrompe o array
+    h[hora] += x.quantidade
+  }
   return h
 }
 
@@ -109,7 +113,8 @@ export function porOperador(scansHoje: ScanEvent[], produzidoPeriodo: number): L
   for (const x of scansHoje) {
     const a = acc.get(x.operador) ?? { qtd: 0, horas: new Set<number>() }
     a.qtd += x.quantidade
-    a.horas.add(new Date(x.em).getHours())
+    const hora = new Date(x.em).getHours()
+    if (!Number.isNaN(hora)) a.horas.add(hora)
     acc.set(x.operador, a)
   }
   const total = [...acc.values()].reduce((s, a) => s + a.qtd, 0)

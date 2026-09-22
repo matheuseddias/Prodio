@@ -48,11 +48,20 @@ export function tenantDoBanco(r: TenantRow, perfis: LabelProfileRow[]): Tenant {
     diasCobertura: num(r.dias_cobertura, 15),
     margemAlvoPadrao: num(r.margem_alvo_padrao, 0.2),
     exigirProjecaoParaImprimir: !!r.exigir_projecao_para_imprimir,
-    perfisEtiqueta: perfis.map(perfilDoBanco),
+    perfisEtiqueta: (Array.isArray(perfis) ? perfis : []).map(perfilDoBanco),
   }
 }
 export function perfilDoBanco(r: LabelProfileRow): LabelProfile {
-  return { familia: r.familia, prefixo: r.prefixo, tipos: r.tipos as LabelProfile['tipos'], unidadesPorCaixa: num(r.unidades_por_caixa, 1), instrucaoMontagem: strOpt(r.instrucao_montagem) }
+  // `tipos` é text[] no banco, mas um perfil importado ou editado à mão pode chegar sem lista; sem
+  // este piso a tela de Etiquetas quebra logo no cabeçalho (resumoPerfis percorre tipos).
+  const tipos = (Array.isArray(r.tipos) ? r.tipos : []) as LabelProfile['tipos']
+  return {
+    familia: String(r.familia ?? ''),
+    prefixo: String(r.prefixo ?? 'PR'),
+    tipos: tipos.length ? tipos : ['produto'],
+    unidadesPorCaixa: num(r.unidades_por_caixa, 1),
+    instrucaoMontagem: strOpt(r.instrucao_montagem),
+  }
 }
 export function tenantParaBanco(t: Tenant): Omit<TenantRow, 'id'> {
   return {

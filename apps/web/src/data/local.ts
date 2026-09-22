@@ -1,6 +1,7 @@
 // Regras do modo memória como funções puras sobre o Snapshot. Usadas pelo MemoryRepo (que guarda o
 // estado) e pelo store (atualização otimista antes da resposta do backend). Comportamento idêntico
 // ao antigo StoreProvider.
+import { diaProducao } from '../domain/format'
 import type { Bom, Channel, Label, NfeInbound, OutboxItem, Product, PurchaseOrder, ScanEvent, StockMove } from '../domain/types'
 import type { ScanResult, Snapshot } from './repo'
 
@@ -10,7 +11,8 @@ export interface Resultado<T = void> {
 }
 
 const agora = () => new Date().toISOString()
-const hojeISO = () => new Date().toISOString().slice(0, 10)
+/** Competência e dia da etiqueta seguem a hora de virada do tenant, igual ao que o banco grava. */
+const diaDoTenant = (s: Snapshot) => diaProducao(s.tenant.horaVirada)
 const r3 = (n: number) => Math.round(n * 1000) / 1000
 const r2 = (n: number) => Math.round(n * 100) / 100
 
@@ -39,7 +41,7 @@ export function registerScan(s: Snapshot, serialRaw: string, operador: string, d
     tipo: 'produzido',
     quantidade: label.quantidade,
     em: agora(),
-    competencia: hojeISO(),
+    competencia: diaDoTenant(s),
     sincronizado: true,
   }
   const dailyPlan = s.dailyPlan.map((l) => (l.productId === label.productId ? { ...l, bipado: l.bipado + label.quantidade } : l))
@@ -71,7 +73,7 @@ export function setProjetado(s: Snapshot, productId: string, projetado: number):
 export function printLabels(s: Snapshot, productId: string, qtd: number, tipo: 'unidade' | 'caixa' = 'unidade'): Resultado<Label[]> {
   const p = s.products.find((x) => x.id === productId)
   if (!p) return { estado: s, valor: [] }
-  const dia = hojeISO()
+  const dia = diaDoTenant(s)
   const diaCompacto = dia.replace(/-/g, '').slice(2)
   const perfil = s.tenant.perfisEtiqueta.find((x) => x.familia === p.familia)
   const prefix = perfil?.prefixo ?? 'PR'

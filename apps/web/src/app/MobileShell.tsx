@@ -1,10 +1,11 @@
 import { ClipboardCheck, ScanLine, Truck, LogOut, WifiOff, RefreshCw, AlertTriangle } from 'lucide-react'
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { dispositivoLembrado, lembrarDispositivo } from '../data/chaoAuth'
 import { useStore } from '../domain/store'
 import { cx } from '../ui'
 import { useAuth } from './auth'
+import ErrorBoundary from './ErrorBoundary'
 
 interface Session {
   operador: string | null
@@ -84,6 +85,7 @@ export default function MobileShell() {
   const { loading, erro, modo, pendentesBipes } = useStore()
   const auth = useAuth()
   const nav = useNavigate()
+  const loc = useLocation()
   const semSessao = modo === 'supabase' && auth.pronto && !auth.sessao
   useEffect(() => {
     if (!operador || semSessao) nav('/chao', { replace: true })
@@ -107,7 +109,16 @@ export default function MobileShell() {
           </button>
         </div>
       </header>
-      <main className="flex-1 min-h-0 overflow-y-auto">{loading || erro ? <EstadoDados /> : <Outlet />}</main>
+      <main className="flex-1 min-h-0 overflow-y-auto">
+        {loading || erro ? (
+          <EstadoDados />
+        ) : (
+          // Erro numa tela do chão não pode apagar as abas: o operador precisa conseguir sair dela.
+          <ErrorBoundary variante="chao" chaveReset={loc.pathname} onde={loc.pathname}>
+            <Outlet />
+          </ErrorBoundary>
+        )}
+      </main>
       <nav className="shrink-0 grid grid-cols-3 border-t border-slate-800 bg-slate-900" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         {TABS.map((t) => (
           <NavLink key={t.to} to={t.to} className={({ isActive }) => cx('flex flex-col items-center justify-center gap-1 py-2.5 text-[12px]', isActive ? 'text-teal-300' : 'text-slate-400')}>

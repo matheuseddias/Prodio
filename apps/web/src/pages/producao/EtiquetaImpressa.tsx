@@ -1,7 +1,7 @@
 // Uma etiqueta física (produto, montagem ou caixa). Sempre branca com texto preto: vai para a impressora térmica.
 import { QRCodeSVG } from 'qrcode.react'
 import type { Label, LabelKind, LabelProfile, Product } from '../../domain/types'
-import { TAMANHOS, type Tamanho } from './etiquetas'
+import { TAMANHOS, type Tamanho } from './etiquetasUtils'
 
 interface Props {
   label: Label

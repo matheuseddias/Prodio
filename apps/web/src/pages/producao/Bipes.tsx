@@ -1,7 +1,7 @@
 // Aba "Bipes" dos Apontamentos: histórico de leituras do dia com filtros e estorno.
 import { CloudOff, RotateCcw, Undo2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { hojeISO, horaBR, num } from '../../domain/format'
+import { diaProducao, horaBR, num } from '../../domain/format'
 import { useLookups, useStore } from '../../domain/store'
 import type { ScanEvent } from '../../domain/types'
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, Select, Stat, Table, Td, Th, cx } from '../../ui'
@@ -11,8 +11,9 @@ const tipoTone = { produzido: 'ok', estorno: 'danger', refugo: 'warn' } as const
 
 export function Bipes() {
   const s = useStore()
-  const { product } = useLookups()
-  const hoje = hojeISO()
+  const { productRef } = useLookups()
+  // Dia de produção do tenant: é por ele que os bipes do dia foram buscados no banco.
+  const hoje = diaProducao(s.tenant.horaVirada)
 
   const [data, setData] = useState(hoje)
   const [sku, setSku] = useState('')
@@ -23,7 +24,9 @@ export function Bipes() {
 
   const operadores = useMemo(() => [...new Set(s.scans.map((x) => x.operador))].sort(), [s.scans])
   const dispositivos = useMemo(() => [...new Set(s.scans.map((x) => x.dispositivo))].sort(), [s.scans])
-  const skus = useMemo(() => [...new Set(s.scans.map((x) => x.productId))].map((id) => product(id)!).filter(Boolean), [s.scans, product])
+  // Todo produto bipado entra no filtro, inclusive o que foi excluído depois do bipe: sem isso o
+  // usuário não consegue isolar justamente os apontamentos que quer conferir.
+  const skus = useMemo(() => [...new Set(s.scans.map((x) => x.productId))].map((id) => productRef(id)), [s.scans, productRef])
 
   const doDia = useMemo(() => s.scans.filter((x) => x.competencia === data), [s.scans, data])
   const filtrados = useMemo(
@@ -47,7 +50,12 @@ export function Bipes() {
   }, [bipes])
   const porHora = useMemo(() => {
     const h = Array.from({ length: 24 }, () => 0)
-    for (const x of filtrados) if (x.tipo === 'produzido') h[new Date(x.em).getHours()] += x.quantidade
+    for (const x of filtrados) {
+      if (x.tipo !== 'produzido') continue
+      const hora = new Date(x.em).getHours()
+      if (Number.isNaN(hora)) continue // bipe sem hora válida não some da tabela, só não entra no histograma
+      h[hora] += x.quantidade
+    }
     return h
   }, [filtrados])
 
@@ -98,9 +106,9 @@ export function Bipes() {
             <Field label="SKU">
               <Select value={sku} onChange={(e) => setSku(e.target.value)}>
                 <option value="">Todos</option>
-                {skus.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.sku} · {p.atributos.cor}
+                {skus.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.removido ? `${r.nome} (${r.sku})` : `${r.sku}${r.cor ? ` · ${r.cor}` : ''}`}
                   </option>
                 ))}
               </Select>
@@ -159,16 +167,17 @@ export function Bipes() {
                 </thead>
                 <tbody>
                   {filtrados.map((x) => {
-                    const p = product(x.productId)
+                    const ref = productRef(x.productId)
                     return (
                       <tr key={x.id} className={cx(x.tipo === 'estorno' && 'text-muted')}>
                         <Td className="tabular-nums whitespace-nowrap">{horaBR(x.em)}</Td>
                         <Td mono className="whitespace-nowrap">{x.serial}</Td>
                         <Td>
                           <div className="whitespace-nowrap">
-                            {p?.nome} <span className="uppercase text-accent-text">· {p?.atributos.cor}</span>
+                            <span className={cx(ref.removido && 'text-muted italic')}>{ref.nome}</span>
+                            {ref.cor && <span className="uppercase text-accent-text"> · {ref.cor}</span>}
                           </div>
-                          <div className="text-[12px] text-muted font-mono">{p?.sku}</div>
+                          <div className="text-[12px] text-muted font-mono">{ref.sku}</div>
                         </Td>
                         <Td>{x.operador}</Td>
                         <Td className="whitespace-nowrap">{x.dispositivo}</Td>
@@ -225,7 +234,8 @@ export function Bipes() {
             <div className="rounded-lg bg-surface-2 p-3 space-y-1">
               <div className="font-mono text-[13px]">{estornar.serial}</div>
               <div>
-                {product(estornar.productId)?.nome} <span className="uppercase text-accent-text">· {product(estornar.productId)?.atributos.cor}</span>
+                {productRef(estornar.productId).nome}
+                {productRef(estornar.productId).cor && <span className="uppercase text-accent-text"> · {productRef(estornar.productId).cor}</span>}
               </div>
               <div className="text-muted text-[12px]">
                 {horaBR(estornar.em)} · {estornar.operador} · {estornar.dispositivo}

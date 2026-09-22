@@ -1,19 +1,20 @@
 import { AlertTriangle, Printer, Settings2, Wand2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { hojeISO, num } from '../../domain/format'
+import { diaProducao, num } from '../../domain/format'
 import { useLookups, useStore } from '../../domain/store'
 import type { Label, LabelKind } from '../../domain/types'
 import { Badge, Button, Card, EmptyState, Field, Select, Table, Td, Th, Toggle, cx } from '../../ui'
 import { EtiquetasHistorico } from './EtiquetasHistorico'
 import { EtiquetasPreview, type GrupoPreview } from './EtiquetasPreview'
-import { DESCRICAO_TIPO, NOME_TIPO, ORDEM_TIPOS, caixasPara, etiquetasDoPedido, perfilDe, resumoPerfis, type ItemPreview, type Req, type Tamanho } from './etiquetas'
+import { DESCRICAO_TIPO, NOME_TIPO, ORDEM_TIPOS, caixasPara, etiquetasDoPedido, perfilDe, resumoPerfis, type ItemPreview, type Req, type Tamanho } from './etiquetasUtils'
 
 export default function Etiquetas() {
   const s = useStore()
-  const { product } = useLookups()
+  const { product, productRef } = useLookups()
   const nav = useNavigate()
-  const hoje = hojeISO()
+  // Mesmo dia que a camada de dados usou para buscar plano e etiquetas (hora de virada do tenant).
+  const hoje = diaProducao(s.tenant.horaVirada)
   const perfis = s.tenant.perfisEtiqueta
   const exigeProjecao = s.tenant.exigirProjecaoParaImprimir
 
@@ -158,6 +159,7 @@ export default function Etiquetas() {
                   <tbody>
                     {linhas.map((l) => {
                       const p = product(l.productId)
+                      const ref = productRef(l.productId)
                       const perfil = perfilDe(perfis, p)
                       const b = bloqueada(l)
                       const sug = sugerido(l)
@@ -166,14 +168,15 @@ export default function Etiquetas() {
                       return (
                         <tr key={l.productId} className={cx(b && 'opacity-70')}>
                           <Td>
-                            <input type="checkbox" className="h-4 w-4 accent-[var(--color-accent)]" checked={!!sel[l.productId] && !b} disabled={b} onChange={(e) => setSel((x) => ({ ...x, [l.productId]: e.target.checked }))} aria-label={`Selecionar ${p?.sku}`} />
+                            <input type="checkbox" className="h-4 w-4 accent-[var(--color-accent)]" checked={!!sel[l.productId] && !b} disabled={b} onChange={(e) => setSel((x) => ({ ...x, [l.productId]: e.target.checked }))} aria-label={`Selecionar ${ref.sku}`} />
                           </Td>
                           <Td>
                             <div className="font-medium whitespace-nowrap">
-                              {p?.nome} <span className="uppercase text-accent-text">· {p?.atributos.cor}</span>
+                              <span className={cx(ref.removido && 'text-muted italic')}>{ref.nome}</span>
+                              {ref.cor && <span className="uppercase text-accent-text"> · {ref.cor}</span>}
                             </div>
                             <div className="text-[12px] text-muted font-mono flex items-center gap-2">
-                              {p?.sku}
+                              {ref.sku}
                               {l.projetado === 0 && exigeProjecao && (
                                 <Badge tone={paraAmanha ? 'info' : 'warn'}>
                                   <AlertTriangle size={12} /> {paraAmanha ? 'Impressão para amanhã' : 'Sem projeção do dia'}
@@ -263,10 +266,10 @@ export default function Etiquetas() {
                 <div className="rounded-lg border border-border p-3 text-[12px] space-y-1">
                   <div className="font-medium text-[13px]">Resumo desta impressão</div>
                   {pedidos.map((r) => {
-                    const p = product(r.productId)
+                    const ref = productRef(r.productId)
                     return (
                       <div key={r.productId} className="flex items-center justify-between gap-2">
-                        <span className="truncate font-mono text-muted">{p?.sku}</span>
+                        <span className="truncate font-mono text-muted">{ref.sku}</span>
                         <span className="tabular-nums whitespace-nowrap">
                           {r.tipos.filter((t) => t !== 'caixa').map((t) => `${num(r.unidades)} ${NOME_TIPO[t].toLowerCase()}`).join(' + ')}
                           {r.tipos.includes('caixa') && ` + ${num(r.caixas)} caixa(s)`}

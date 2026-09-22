@@ -98,8 +98,9 @@ export default function Fichas() {
     setLinhas((ls) => [...ls, { id: uid(), tipo: 'insumo', consumo: 1, unidade: '', perdaPct: 0 }])
     setSujo(true)
   }
-  const setMaterial = (id: string, m: Material) => upd(id, { materialId: m.id, componentId: undefined, unidade: m.unidadeConsumo })
-  const setComponente = (id: string, p: Product) => upd(id, { componentId: p.id, materialId: undefined, unidade: 'un' })
+  // Item que não está mais na lista (excluído em outra aba) não pode entrar na ficha nem quebrar a tela.
+  const setMaterial = (id: string, m?: Material) => m && upd(id, { materialId: m.id, componentId: undefined, unidade: m.unidadeConsumo })
+  const setComponente = (id: string, p?: Product) => p && upd(id, { componentId: p.id, materialId: undefined, unidade: 'un' })
 
   const copiar = () => {
     const b = boms.find((x) => x.productId === copiarDe && x.ativa)
@@ -204,9 +205,9 @@ export default function Fichas() {
                             </Td>
                             <Td>
                               {l.tipo === 'insumo' ? (
-                                <FichasItemPicker opcoes={opcoesMat} value={l.materialId} onChange={(id) => setMaterial(l.id, matById.get(id)!)} placeholder="Escolher insumo…" />
+                                <FichasItemPicker opcoes={opcoesMat} value={l.materialId} onChange={(id) => setMaterial(l.id, matById.get(id))} placeholder="Escolher insumo…" />
                               ) : (
-                                <FichasItemPicker opcoes={opcoesProd} value={l.componentId} onChange={(id) => setComponente(l.id, prodById.get(id)!)} placeholder="Escolher produto…" />
+                                <FichasItemPicker opcoes={opcoesProd} value={l.componentId} onChange={(id) => setComponente(l.id, prodById.get(id))} placeholder="Escolher produto…" />
                               )}
                               {err && <div className="mt-1 text-[12px] text-danger">{err}</div>}
                             </Td>

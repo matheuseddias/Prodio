@@ -3,7 +3,7 @@ import { Download } from 'lucide-react'
 import { dataBR, num, pct } from '../../domain/format'
 import { useLookups } from '../../domain/store'
 import { Badge, Button, Card, EmptyState, Table, Td, Th, cx } from '../../ui'
-import { aderenciaDe, baixarCsv, csvFechamentos, toneAderencia, type DiaProducao, type LinhaOperador, type LinhaSku } from './produtividade'
+import { aderenciaDe, baixarCsv, csvFechamentos, toneAderencia, type DiaProducao, type LinhaOperador, type LinhaSku } from './produtividadeUtils'
 
 export function TabelaOperadores({ linhas, periodo }: { linhas: LinhaOperador[]; periodo: number }) {
   return (
@@ -51,7 +51,7 @@ export function TabelaOperadores({ linhas, periodo }: { linhas: LinhaOperador[];
 }
 
 export function TabelaSkus({ linhas }: { linhas: LinhaSku[] }) {
-  const { product } = useLookups()
+  const { productRef } = useLookups()
   return (
     <Card title="Por SKU" padded={false} actions={<span className="text-[13px] text-muted">hoje × projetado</span>}>
       {linhas.length === 0 ? (
@@ -69,14 +69,15 @@ export function TabelaSkus({ linhas }: { linhas: LinhaSku[] }) {
             </thead>
             <tbody>
               {linhas.map((l) => {
-                const p = product(l.productId)
+                const ref = productRef(l.productId)
                 return (
                   <tr key={l.productId}>
                     <Td>
                       <div className="whitespace-nowrap">
-                        {p?.nome} <span className="uppercase text-accent-text">· {p?.atributos.cor}</span>
+                        <span className={cx(ref.removido && 'text-muted italic')}>{ref.nome}</span>
+                        {ref.cor && <span className="uppercase text-accent-text"> · {ref.cor}</span>}
                       </div>
-                      <div className="text-[12px] text-muted font-mono">{p?.sku}</div>
+                      <div className="text-[12px] text-muted font-mono">{ref.sku}</div>
                     </Td>
                     <Td right className="text-muted">{num(l.projetado)}</Td>
                     <Td right className={cx('font-semibold', l.projetado === 0 && 'text-warn')}>{num(l.hoje)}</Td>

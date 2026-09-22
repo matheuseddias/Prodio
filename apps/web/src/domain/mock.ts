@@ -20,8 +20,11 @@ import type {
   Tenant,
   Unit,
 } from './types'
+import { diaISO as diaLocal, diaProducao } from './format'
 
 const hoje = new Date()
+/** Hora de virada do tenant de demonstração; o dia dos dados de exemplo sai dela. */
+const HORA_VIRADA = '05:00'
 const iso = (d: Date) => d.toISOString()
 const diasAtras = (n: number, h = 9) => {
   const d = new Date(hoje)
@@ -34,7 +37,9 @@ const hojeAs = (h: number, m = 0) => {
   d.setHours(h, m, 0, 0)
   return iso(d)
 }
-const diaISO = hoje.toISOString().slice(0, 10)
+// Mesmo dia de produção que as telas usam para filtrar: com o dia em UTC os dados de exemplo
+// desapareciam da madrugada até as 05:00.
+const diaISO = diaProducao(HORA_VIRADA, hoje)
 const diaCompacto = diaISO.replace(/-/g, '').slice(2)
 
 export const tenant: Tenant = {
@@ -43,7 +48,7 @@ export const tenant: Tenant = {
   cnpj: '44664451000107',
   regime: 'real',
   creditaImpostos: false,
-  horaVirada: '05:00',
+  horaVirada: HORA_VIRADA,
   diasUteisMes: 22,
   margemProjecao: 0.1,
   diasCobertura: 15,
@@ -297,17 +302,17 @@ export const vendas14d: { dia: string; unidades: number }[] = Array.from({ lengt
   d.setDate(d.getDate() - (13 - i))
   const dow = d.getDay()
   const base = dow === 0 || dow === 6 ? 180 : 320
-  return { dia: d.toISOString().slice(0, 10), unidades: base + ((i * 37) % 90) }
+  return { dia: diaLocal(d), unidades: base + ((i * 37) % 90) }
 })
 
 export const producao14d: { dia: string; projetado: number; produzido: number }[] = Array.from({ length: 14 }, (_, i) => {
   const d = new Date(hoje)
   d.setDate(d.getDate() - (13 - i))
   const dow = d.getDay()
-  if (dow === 0 || dow === 6) return { dia: d.toISOString().slice(0, 10), projetado: 0, produzido: 0 }
+  if (dow === 0 || dow === 6) return { dia: diaLocal(d), projetado: 0, produzido: 0 }
   const projetado = 260 + ((i * 23) % 60)
   const produzido = i === 13 ? 215 : projetado - 20 + ((i * 11) % 45)
-  return { dia: d.toISOString().slice(0, 10), projetado, produzido }
+  return { dia: diaLocal(d), projetado, produzido }
 })
 
 // Canais de venda: presets editáveis pelo cliente. Valores são de referência e devem ser conferidos.

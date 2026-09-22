@@ -38,7 +38,7 @@ function QtyInput({ value, onCommit, highlight }: { value: number; onCommit: (v:
 
 export default function LinhaDeHoje() {
   const s = useStore()
-  const { product, material } = useLookups()
+  const { productRef, material } = useLookups()
   const nav = useNavigate()
   const [local, setLocal] = useState(locations[0]?.id ?? '')
   const [modal, setModal] = useState(false)
@@ -188,7 +188,7 @@ export default function LinhaDeHoje() {
               </thead>
               <tbody>
                 {linhas.map((l) => {
-                  const p = product(l.productId)
+                  const ref = productRef(l.productId)
                   const falta = Math.max(0, l.projetado - l.bipado)
                   const r = l.projetado > 0 ? l.bipado / l.projetado : 0
                   const semEtiqueta = l.impresso === 0
@@ -198,11 +198,12 @@ export default function LinhaDeHoje() {
                     <tr key={l.productId} className={cx(alerta && 'bg-warn-soft/40', elevadas.has(l.productId) && 'bg-ok-soft/40')}>
                       <Td>
                         <div className="font-medium">
-                          {p?.nome} <span className="uppercase text-accent-text">· {p?.atributos.cor}</span>
+                          <span className={cx(ref.removido && 'text-muted italic')}>{ref.nome}</span>
+                          {ref.cor && <span className="uppercase text-accent-text"> · {ref.cor}</span>}
                         </div>
                         <div className="text-[12px] text-muted font-mono">
-                          {p?.sku}
-                          {p?.atributos.tamanho && <span className="font-sans"> · {p.atributos.tamanho}</span>}
+                          {ref.sku}
+                          {ref.tamanho && <span className="font-sans"> · {ref.tamanho}</span>}
                         </div>
                       </Td>
                       <Td right className="text-muted">{num(l.demandaDia)}</Td>
@@ -246,7 +247,7 @@ export default function LinhaDeHoje() {
               <option value="">Selecione um produto…</option>
               {foraDoPlano.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.sku} · {p.nome} · {p.atributos.cor}
+                  {[p.sku, p.nome, p.atributos.cor].filter(Boolean).join(' · ')}
                 </option>
               ))}
             </Select>
@@ -327,15 +328,16 @@ export default function LinhaDeHoje() {
             </thead>
             <tbody>
               {linhas.map((l) => {
-                const p = product(l.productId)
+                const ref = productRef(l.productId)
                 const f = formula(l)
                 return (
                   <tr key={l.productId}>
                     <Td>
                       <div className="font-medium truncate max-w-[220px]">
-                        {p?.nome} <span className="text-muted">· {p?.atributos.cor}</span>
+                        <span className={cx(ref.removido && 'italic')}>{ref.nome}</span>
+                        {ref.cor && <span className="text-muted"> · {ref.cor}</span>}
                       </div>
-                      <div className="text-[12px] text-muted font-mono">{p?.sku}</div>
+                      <div className="text-[12px] text-muted font-mono">{ref.sku}</div>
                     </Td>
                     <Td right className="text-muted">{num(l.demandaDia)}</Td>
                     <Td right className="text-muted">{num(l.saldoHub)}</Td>

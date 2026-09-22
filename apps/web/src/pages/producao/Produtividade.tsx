@@ -1,18 +1,18 @@
 // Aba "Produtividade" dos Apontamentos: aderência da projeção, gargalo por hora e quem produz, só com bipes.
 import { Info } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { dataBR, hojeISO, num, pct } from '../../domain/format'
+import { dataBR, diaProducao, num, pct } from '../../domain/format'
 import { useStore } from '../../domain/store'
 import { Card, EmptyState, Stat, cx } from '../../ui'
 import { AderenciaLine, GroupedBars, HourHistogram } from './charts'
 import { Fechamentos, TabelaOperadores, TabelaSkus } from './ProdutividadeTabelas'
-import { HORAS_TURNO, PERIODOS, aderenciaDe, bipesDoDia, gargaloDe, historicoProducao, porHoraDe, porOperador, porSku, resumoPeriodo, toneAderencia, type Periodo } from './produtividade'
+import { HORAS_TURNO, PERIODOS, aderenciaDe, bipesDoDia, gargaloDe, historicoProducao, porHoraDe, porOperador, porSku, resumoPeriodo, toneAderencia, type Periodo } from './produtividadeUtils'
 
 const diaCurto = (iso: string) => dataBR(iso + 'T12:00:00').slice(0, 5)
 
 export function Produtividade() {
   const s = useStore()
-  const hoje = hojeISO()
+  const hoje = diaProducao(s.tenant.horaVirada)
   const [periodo, setPeriodo] = useState<Periodo>(14)
 
   const bipesHoje = useMemo(() => bipesDoDia(s.scans, hoje), [s.scans, hoje])

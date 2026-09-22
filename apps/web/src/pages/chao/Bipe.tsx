@@ -15,7 +15,7 @@ type Painel = { serial: string; result: ScanResult; bipadoHoje?: number; projeta
 export default function Bipe() {
   const { operador, dispositivo, online } = useChaoSession()
   const store = useStore()
-  const { product } = useLookups()
+  const { product, productRef } = useLookups()
   const [painel, setPainel] = useState<Painel | null>(null)
   const [filaOffline, setFilaOffline] = useState<string[]>([])
   const [armado, setArmado] = useState<string | null>(null)
@@ -185,14 +185,15 @@ export default function Bipe() {
         ) : (
           <ul className="space-y-2">
             {ultimos.map((s) => {
-              const p = product(s.productId)
+              const ref = productRef(s.productId)
               const arm = armado === s.id
               return (
                 <li key={s.id} className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5">
                   <div className="w-12 shrink-0 text-[13px] tabular-nums text-slate-400">{horaBR(s.em)}</div>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[15px] font-medium">
-                      {p?.nome ?? '—'} <span className="text-slate-400">· {p?.atributos.cor}</span>
+                      {ref.nome}
+                      {ref.cor && <span className="text-slate-400"> · {ref.cor}</span>}
                     </div>
                     <div className="truncate font-mono text-[12px] text-slate-500">…{s.serial.slice(-10)} · {s.operador}</div>
                   </div>

@@ -1,6 +1,7 @@
 // Contexto compartilhado pelos módulos do SupabaseRepo: cliente, tenant ativo, estado atual do
 // store (para resolver ids por serial/chave) e mapas auxiliares preenchidos nas leituras.
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { diaProducao } from '../domain/format'
 import type { Location } from '../domain/types'
 import { checar } from './erros'
 import type { Snapshot } from './repo'
@@ -45,14 +46,7 @@ export function localPadraoId(ctx: Ctx): string {
   return l.id
 }
 
-/** Dia de produção pelo relógio local e pela hora de virada do tenant (bipe às 02:00 conta para o dia anterior). */
-export function diaProducao(horaVirada: string, agora = new Date()): string {
-  const [h, m] = horaVirada.split(':').map((x) => Number(x) || 0)
-  const d = new Date(agora.getTime() - (h * 60 + m) * 60_000)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
-
+/** O dia de produção vive em domain/format: leitura e tela têm de usar exatamente o mesmo cálculo. */
 export function diaAtual(ctx: Ctx): string {
-  return diaProducao(ctx.estado().tenant.horaVirada || '05:00')
+  return diaProducao(ctx.estado().tenant.horaVirada)
 }
