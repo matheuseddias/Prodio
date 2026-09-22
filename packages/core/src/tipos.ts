@@ -156,6 +156,36 @@ export interface ScanEvent {
   sincronizado: boolean
 }
 
+// ---------------------------------------------------------------------------
+// Histórico dos gráficos (Painel e Produtividade)
+// ---------------------------------------------------------------------------
+/** Um dia do histórico de produção: o projetado do plano e o bipado daquela competência. */
+export interface HistoricoProducaoDia {
+  dia: string
+  projetado: number
+  produzido: number
+}
+
+/** Um dia do histórico de vendas: unidades dos pedidos confirmados naquele dia. */
+export interface HistoricoVendasDia {
+  dia: string
+  unidades: number
+}
+
+/**
+ * Séries históricas dos gráficos. Vêm do banco (v_daily_plan para produção, orders/order_items
+ * para vendas) ou, no modo de demonstração sem banco, dos dados de exemplo — e aí `exemplo` é
+ * true e a tela tem de dizer isso. Dia sem linha no banco é zero, nunca número inventado.
+ * `truncada` marca a série que estourou o limite de linhas da leitura: os dias que sobraram são
+ * reais, mas cobrem um período menor do que o pedido.
+ */
+export interface Historico {
+  producao: HistoricoProducaoDia[]
+  vendas: HistoricoVendasDia[]
+  exemplo: boolean
+  truncada: { producao: boolean; vendas: boolean }
+}
+
 export type MoveType =
   | 'entrada_nfe'
   | 'entrada_manual'

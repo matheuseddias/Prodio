@@ -10,6 +10,7 @@ import { MemoryRepo, snapshotExemplo } from '../data/memoryRepo'
 import { novoId, type ModoDados, type OperadorInput, type Patch, type Repo, type Retorno, type ScanResult, type Snapshot } from '../data/repo'
 import { modoDados, supabase } from '../data/supabaseClient'
 import { SupabaseRepo } from '../data/supabaseRepo'
+import { historicoVazio } from './historico'
 import { produtoRef } from './produtoRef'
 import { useFilaBipes } from './storeBipes'
 import type { Bom, Channel, Connector, Device, Label, Material, Member, NfeInbound, Product, PurchaseOrder, StockMove, Supplier, Tenant } from './types'
@@ -66,7 +67,12 @@ const StoreContext = createContext<(State & Actions & Meta) | null>(null)
 
 function snapshotVazio(): Snapshot {
   const ex = snapshotExemplo()
-  return { ...Object.fromEntries(Object.keys(ex).map((k) => [k, []])), tenant: { ...ex.tenant, id: '', nome: '', perfisEtiqueta: [] } } as unknown as Snapshot
+  // Fatias que não são lista precisam do próprio vazio: `historico` virando `[]` derrubava a tela.
+  return {
+    ...Object.fromEntries(Object.keys(ex).map((k) => [k, []])),
+    tenant: { ...ex.tenant, id: '', nome: '', perfisEtiqueta: [] },
+    historico: historicoVazio(),
+  } as unknown as Snapshot
 }
 
 export function StoreProvider({ children, repo: repoProp }: { children: ReactNode; repo?: Repo }) {

@@ -5,6 +5,8 @@ import {
   bomsDoBanco,
   channelDoBanco,
   channelParaBanco,
+  diaDaVenda,
+  intervaloDias,
   materialDoBanco,
   materialParaBanco,
   nfeDoBanco,
@@ -13,10 +15,14 @@ import {
   pctParaBanco,
   perfilParaBanco,
   perfilDoBanco,
+  primeiroDiaCompleto,
   productDoBanco,
   productParaBanco,
   purchaseOrderDoBanco,
   scansDoBanco,
+  serieProducaoDoBanco,
+  serieVendasDoBanco,
+  somaDias,
   supplierDoBanco,
   supplierParaBanco,
   tenantDoBanco,
@@ -114,5 +120,47 @@ describe('bipes, OC, NF-e e outbox', () => {
     const c: Channel = channelDoBanco({ id: 'ch1', nome: 'ML', preset: 'mercadolivre', ativo: true, comissao_pct: '0.12000', taxa_fixa: '6.00', taxa_fixa_abaixo_de: '79.00', frete_vendedor: [{ ateKg: 0.3, valor: 0 }], frete_gratis_acima_de: null, imposto_venda_pct: '0.06000', ads_pct: '0.03000', parcelamento_pct: '0', outros_pct: '0', observacao: null })
     expect(c).toMatchObject({ comissaoPct: 12, taxaFixa: 6, taxaFixaAbaixoDe: 79, impostoVendaPct: 6, freteGratisAcimaDe: undefined })
     expect(channelParaBanco(T, c, 'ch1')).toMatchObject({ comissao_pct: 0.12, imposto_venda_pct: 0.06, frete_gratis_acima_de: null, frete_vendedor: [{ ateKg: 0.3, valor: 0 }] })
+  })
+})
+
+describe('histórico dos gráficos', () => {
+  it('projetado soma os locais e bipado não conta duas vezes o mesmo produto', () => {
+    // v_daily_plan devolve uma linha por (dia, local, produto); o bipado da view já é o total do
+    // produto no dia, então dois galpões repetem o mesmo número.
+    const rows = [
+      { dia: '2026-09-22', product_id: 'p1', projetado: '80', bipado: '63' },
+      { dia: '2026-09-22', product_id: 'p1', projetado: '20', bipado: '63' },
+      { dia: '2026-09-22', product_id: 'p2', projetado: '70', bipado: '70' },
+    ]
+    expect(serieProducaoDoBanco(rows, ['2026-09-21', '2026-09-22'])).toEqual([
+      { dia: '2026-09-21', projetado: 0, produzido: 0 },
+      { dia: '2026-09-22', projetado: 170, produzido: 133 },
+    ])
+  })
+  it('dia sem linha no banco vale zero, nunca número de outro dia', () => {
+    expect(serieProducaoDoBanco([], intervaloDias('2026-09-20', '2026-09-22'))).toEqual([
+      { dia: '2026-09-20', projetado: 0, produzido: 0 },
+      { dia: '2026-09-21', projetado: 0, produzido: 0 },
+      { dia: '2026-09-22', projetado: 0, produzido: 0 },
+    ])
+  })
+  it('vendas somam os itens do pedido no dia de calendário e ignoram pedido sem confirmação', () => {
+    const dia = new Date('2026-09-22T15:00:00Z')
+    const rows = [
+      { confirmed_at: dia.toISOString(), order_items: [{ quantidade: '3' }, { quantidade: 2 }] },
+      { confirmed_at: dia.toISOString(), order_items: [{ quantidade: '1' }] },
+      { confirmed_at: null, order_items: [{ quantidade: '99' }] },
+    ]
+    const d = diaDaVenda(rows[0])
+    expect(serieVendasDoBanco(rows, [d])).toEqual([{ dia: d, unidades: 6 }])
+  })
+  it('somaDias anda no calendário e intervaloDias fecha nas duas pontas', () => {
+    expect(somaDias('2026-03-01', -1)).toBe('2026-02-28')
+    expect(intervaloDias('2026-12-30', '2027-01-01')).toEqual(['2026-12-30', '2026-12-31', '2027-01-01'])
+    expect(intervaloDias('2026-09-22', '2026-09-20')).toEqual([])
+  })
+  it('leitura truncada começa no dia seguinte ao mais antigo, que pode estar pela metade', () => {
+    expect(primeiroDiaCompleto(['2026-09-22', '2026-09-21', '2026-09-20'], '2026-09-22')).toBe('2026-09-21')
+    expect(primeiroDiaCompleto(['2026-09-22'], '2026-09-22')).toBe('2026-09-22')
   })
 })

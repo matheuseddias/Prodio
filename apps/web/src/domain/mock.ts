@@ -4,6 +4,7 @@ import type {
   Connector,
   DailyPlanLine,
   Device,
+  Historico,
   Label,
   Location,
   Material,
@@ -297,23 +298,25 @@ export const notifications: Notification[] = [
   { id: 'n6', tipo: 'cadastro', texto: 'Espelho Orgânico Nuvem 50cm vendeu 34 un e não tem ficha', em: diasAtras(0, 6), lida: true },
 ]
 
-export const vendas14d: { dia: string; unidades: number }[] = Array.from({ length: 14 }, (_, i) => {
-  const d = new Date(hoje)
-  d.setDate(d.getDate() - (13 - i))
-  const dow = d.getDay()
-  const base = dow === 0 || dow === 6 ? 180 : 320
-  return { dia: diaLocal(d), unidades: base + ((i * 37) % 90) }
-})
-
-export const producao14d: { dia: string; projetado: number; produzido: number }[] = Array.from({ length: 14 }, (_, i) => {
-  const d = new Date(hoje)
-  d.setDate(d.getDate() - (13 - i))
-  const dow = d.getDay()
-  if (dow === 0 || dow === 6) return { dia: diaLocal(d), projetado: 0, produzido: 0 }
-  const projetado = 260 + ((i * 23) % 60)
-  const produzido = i === 13 ? 215 : projetado - 20 + ((i * 11) % 45)
-  return { dia: diaLocal(d), projetado, produzido }
-})
+/**
+ * Histórico do modo de demonstração (sem banco): 90 dias de um padrão semanal, com `exemplo: true`
+ * para a tela marcar o gráfico como ilustrativo. Ligado num Supabase de verdade, o histórico vem de
+ * v_daily_plan e de orders — nunca daqui.
+ */
+export const historico: Historico = (() => {
+  const producao: Historico['producao'] = []
+  const vendas: Historico['vendas'] = []
+  for (let i = 89; i >= 0; i--) {
+    const d = new Date(hoje)
+    d.setDate(d.getDate() - i)
+    const dia = diaLocal(d)
+    const fimDeSemana = d.getDay() === 0 || d.getDay() === 6
+    vendas.push({ dia, unidades: (fimDeSemana ? 180 : 320) + ((i * 37) % 90) })
+    const projetado = fimDeSemana ? 0 : 260 + ((i * 23) % 60)
+    producao.push({ dia, projetado, produzido: projetado === 0 ? 0 : Math.max(0, projetado - 20 + ((i * 11) % 45)) })
+  }
+  return { producao, vendas, exemplo: true, truncada: { producao: false, vendas: false } }
+})()
 
 // Canais de venda: presets editáveis pelo cliente. Valores são de referência e devem ser conferidos.
 export const channels: Channel[] = [

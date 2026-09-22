@@ -13,6 +13,7 @@ export function snapshotExemplo(): Snapshot {
     suppliers: mock.suppliers,
     boms: mock.boms,
     dailyPlan: mock.dailyPlan,
+    historico: mock.historico,
     labels: mock.labels,
     scans: mock.scans,
     stockMoves: mock.stockMoves,
@@ -29,7 +30,7 @@ export function snapshotExemplo(): Snapshot {
   }
 }
 
-const TODAS: Parte[] = ['tenant', 'products', 'materials', 'suppliers', 'boms', 'dailyPlan', 'labels', 'scans', 'stockMoves', 'purchaseOrders', 'nfes', 'connectors', 'outbox', 'members', 'devices', 'notifications', 'channels', 'locations', 'operators']
+const TODAS: Parte[] = ['tenant', 'products', 'materials', 'suppliers', 'boms', 'dailyPlan', 'historico', 'labels', 'scans', 'stockMoves', 'purchaseOrders', 'nfes', 'connectors', 'outbox', 'members', 'devices', 'notifications', 'channels', 'locations', 'operators']
 
 export class MemoryRepo implements Repo {
   readonly modo = 'memoria' as const

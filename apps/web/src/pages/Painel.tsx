@@ -1,8 +1,8 @@
 import { AlertTriangle, ArrowRight, Bell, BookOpen, Boxes, Package, Plug, ShoppingCart, Truck } from 'lucide-react'
 import { useMemo, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { producao14d, vendas14d } from '../domain/mock'
-import { hojeISO, num, pct, relativo } from '../domain/format'
+import { diaProducao, hojeISO, num, pct, relativo } from '../domain/format'
+import { comHoje, semProducao, semVendas, ultimosDias } from '../domain/historico'
 import { useLookups, useStore } from '../domain/store'
 import { Badge, Button, Card, EmptyState, Progress, Stat, cx, type Tone } from '../ui'
 import { GroupedBars } from './producao/charts'
@@ -50,6 +50,16 @@ export default function Painel() {
     [s.dailyPlan],
   )
   const aderencia = projetado > 0 ? produzido / projetado : 0
+
+  // Gráficos: histórico real do banco (v_daily_plan e orders). Hoje vem do store, que já soma os
+  // bipes da fila offline. Empresa sem histórico mostra estado vazio, nunca número inventado.
+  const producao14 = useMemo(
+    () => ultimosDias(comHoje(s.historico.producao, diaProducao(s.tenant.horaVirada), { projetado, produzido }), 14),
+    [s.historico.producao, s.tenant.horaVirada, projetado, produzido],
+  )
+  const vendas14 = useMemo(() => ultimosDias(s.historico.vendas, 14), [s.historico.vendas])
+  const exemplo = s.historico.exemplo
+  const marcaExemplo = exemplo ? <Badge>exemplo</Badge> : null
 
   return (
     <>
@@ -139,30 +149,54 @@ export default function Painel() {
           className="xl:col-span-2"
           title="Projetado × Produzido · 14 dias"
           actions={
-            <Link to="/producao/apontamentos" className="text-[13px] text-accent-text hover:underline">
-              Apontamentos
-            </Link>
+            <>
+              {marcaExemplo}
+              <Link to="/producao/apontamentos" className="text-[13px] text-accent-text hover:underline">
+                Apontamentos
+              </Link>
+            </>
           }
         >
-          <GroupedBars
-            dias={producao14d.map((d) => d.dia)}
-            series={[
-              { nome: 'Projetado', valores: producao14d.map((d) => d.projetado), tone: 'faint' },
-              { nome: 'Produzido', valores: producao14d.map((d) => d.produzido), tone: 'accent' },
-            ]}
-          />
+          {semProducao(producao14) ? (
+            <EmptyState
+              title="Ainda sem histórico"
+              description="Nada projetado nem bipado nos últimos 14 dias. O gráfico começa no primeiro dia com projeção na Linha de hoje."
+              action={<Button size="sm" onClick={() => nav('/producao/linha-de-hoje')}>Definir projeção</Button>}
+            />
+          ) : (
+            <GroupedBars
+              dias={producao14.map((d) => d.dia)}
+              series={[
+                { nome: 'Projetado', valores: producao14.map((d) => d.projetado), tone: 'faint' },
+                { nome: 'Produzido', valores: producao14.map((d) => d.produzido), tone: 'accent' },
+              ]}
+            />
+          )}
         </Card>
 
         <Card
           className="xl:col-span-2"
           title="Vendas · 14 dias"
           actions={
-            <span className="text-[13px] text-muted tabular-nums">
-              {num(vendas14d.reduce((a, d) => a + d.unidades, 0))} un no período
-            </span>
+            <>
+              {marcaExemplo}
+              <span className="text-[13px] text-muted tabular-nums">{num(vendas14.reduce((a, d) => a + d.unidades, 0))} un no período</span>
+            </>
           }
         >
-          <GroupedBars dias={vendas14d.map((d) => d.dia)} series={[{ nome: 'Unidades vendidas', valores: vendas14d.map((d) => d.unidades), tone: 'info' }]} altura={130} />
+          {semVendas(vendas14) ? (
+            <EmptyState
+              title="Ainda sem vendas no período"
+              description="As unidades vendidas por dia vêm dos pedidos do conector. Conecte um canal para o Prodio contar as vendas."
+              action={
+                <Button size="sm" onClick={() => nav('/conectores')}>
+                  Conectores
+                </Button>
+              }
+            />
+          ) : (
+            <GroupedBars dias={vendas14.map((d) => d.dia)} series={[{ nome: 'Unidades vendidas', valores: vendas14.map((d) => d.unidades), tone: 'info' }]} altura={130} />
+          )}
         </Card>
 
         <Card title="Saúde do cadastro" className="xl:col-span-1">

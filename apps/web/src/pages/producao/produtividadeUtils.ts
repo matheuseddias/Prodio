@@ -1,66 +1,15 @@
-// Cálculos da aba Produtividade. Histórico além dos 14 dias do mock é gerado de forma determinística,
-// repetindo o padrão semanal de producao14d (dados de exemplo até existir backend).
-import { diaISO } from '../../domain/format'
-import { producao14d } from '../../domain/mock'
-import type { DailyPlanLine, ScanEvent } from '../../domain/types'
+// Cálculos da aba Produtividade. O histórico vem do banco (store.historico, lido de v_daily_plan);
+// aqui só se resume o que já existe. Nada de gerar dia que o banco não tem.
+import type { DailyPlanLine, HistoricoProducaoDia, ScanEvent } from '../../domain/types'
 import type { Tone } from '../../ui'
 
-export interface DiaProducao {
-  dia: string
-  projetado: number
-  produzido: number
-}
+export type DiaProducao = HistoricoProducaoDia
 
 export const PERIODOS = [7, 14, 30, 90] as const
 export type Periodo = (typeof PERIODOS)[number]
 
 /** Turno padrão da linha (07:00–16:00). Usado para peças por hora trabalhada no período. */
 export const HORAS_TURNO = 9
-
-const hash = (s: string) => {
-  let h = 7
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
-  return h
-}
-
-/** Últimos N dias (terminando hoje). Dias dentro do mock usam o mock; os demais repetem o padrão semanal. */
-export function historicoProducao(dias: number, hojeReal?: { projetado: number; produzido: number }): DiaProducao[] {
-  const hoje = new Date()
-  const porDia = new Map(producao14d.map((d) => [d.dia, d]))
-  // Dia da semana de cada entrada do mock, derivado do mesmo jeito que o mock deriva.
-  const refPorDow = new Map<number, DiaProducao[]>()
-  producao14d.forEach((d, i) => {
-    const dt = new Date(hoje)
-    dt.setDate(dt.getDate() - (13 - i))
-    const arr = refPorDow.get(dt.getDay()) ?? []
-    arr.push(d)
-    refPorDow.set(dt.getDay(), arr)
-  })
-
-  const out: DiaProducao[] = []
-  for (let i = dias - 1; i >= 0; i--) {
-    const dt = new Date(hoje)
-    dt.setDate(dt.getDate() - i)
-    const dia = diaISO(dt)
-    const real = porDia.get(dia)
-    if (real) {
-      out.push({ ...real })
-      continue
-    }
-    const cands = refPorDow.get(dt.getDay()) ?? []
-    const ref = cands[Math.floor(i / 7) % Math.max(1, cands.length)]
-    if (!ref || ref.projetado === 0) {
-      out.push({ dia, projetado: 0, produzido: 0 })
-      continue
-    }
-    const j = hash(dia)
-    const projetado = ref.projetado + ((j % 41) - 20)
-    const produzido = Math.max(0, ref.produzido + ((Math.floor(j / 41) % 51) - 25))
-    out.push({ dia, projetado, produzido })
-  }
-  if (hojeReal && out.length) out[out.length - 1] = { ...out[out.length - 1], ...hojeReal }
-  return out
-}
 
 export const aderenciaDe = (d: { projetado: number; produzido: number }) => (d.projetado > 0 ? d.produzido / d.projetado : 0)
 export const toneAderencia = (a: number): Tone => (a >= 0.95 ? 'ok' : a >= 0.85 ? 'warn' : 'danger')

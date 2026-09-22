@@ -112,6 +112,9 @@ export function Fechamentos({ historico, periodo }: { historico: DiaProducao[]; 
         </Button>
       }
     >
+      {linhas.length === 0 ? (
+        <EmptyState title="Ainda sem histórico" description="Os fechamentos aparecem aqui a partir do primeiro dia com projeção ou bipe." />
+      ) : (
       <div className="px-5 pb-2 max-h-[420px] overflow-y-auto">
         <Table>
           <thead>
@@ -140,6 +143,7 @@ export function Fechamentos({ historico, periodo }: { historico: DiaProducao[]; 
           </tbody>
         </Table>
       </div>
+      )}
     </Card>
   )
 }

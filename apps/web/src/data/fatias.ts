@@ -9,12 +9,13 @@ export async function carregarTudo(ctx: Ctx): Promise<Snapshot> {
   const base = { ...ctx.estado(), tenant }
   const ctx2: Ctx = { ...ctx, estado: () => base }
   const [locations, members] = await Promise.all([L.lerLocations(ctx2), L.lerMembers(ctx2)])
-  const [materials, suppliers, boms, precos, dailyPlan, labels, scans, stockMoves, purchaseOrders, nfes, outbox, devices, notifications, channels, operators] = await Promise.all([
+  const [materials, suppliers, boms, precos, dailyPlan, historico, labels, scans, stockMoves, purchaseOrders, nfes, outbox, devices, notifications, channels, operators] = await Promise.all([
     L.lerMaterials(ctx2),
     L.lerSuppliers(ctx2),
     L.lerBoms(ctx2),
     L.tolerante(L.lerPrecos(ctx2), {}),
     L.lerDailyPlan(ctx2),
+    L.lerHistorico(ctx2),
     L.lerLabels(ctx2),
     L.lerScans(ctx2),
     L.lerStockMoves(ctx2),
@@ -28,7 +29,7 @@ export async function carregarTudo(ctx: Ctx): Promise<Snapshot> {
   ])
   const pendentes = contarPendentes(outbox)
   const [products, connectors] = await Promise.all([L.lerProducts(ctx2, { boms, materials, precos }), L.tolerante(L.lerConnectors(ctx2, pendentes), [])])
-  return { tenant, products, materials, suppliers, boms, dailyPlan, labels, scans, stockMoves, purchaseOrders, nfes, connectors, outbox, members, devices, notifications, channels, locations, operators }
+  return { tenant, products, materials, suppliers, boms, dailyPlan, historico, labels, scans, stockMoves, purchaseOrders, nfes, connectors, outbox, members, devices, notifications, channels, locations, operators }
 }
 
 function contarPendentes(outbox: Snapshot['outbox']): Record<string, number> {
@@ -52,6 +53,7 @@ export async function carregarFatias(ctx: Ctx, partes: Parte[]): Promise<Patch> 
   fazer('suppliers', () => L.lerSuppliers(ctx))
   fazer('boms', () => L.lerBoms(ctx))
   fazer('dailyPlan', () => L.lerDailyPlan(ctx))
+  fazer('historico', () => L.lerHistorico(ctx))
   fazer('labels', () => L.lerLabels(ctx))
   fazer('scans', () => L.lerScans(ctx))
   fazer('stockMoves', () => L.lerStockMoves(ctx))

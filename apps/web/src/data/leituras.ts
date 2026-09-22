@@ -1,5 +1,6 @@
 // Leituras do Supabase via from()/views (RLS protege). Uma função por fatia do Snapshot.
-import type { Bom, Channel, Connector, DailyPlanLine, Device, Label, Location, Material, Member, NfeInbound, Notification, Operator, Product, PurchaseOrder, ScanEvent, StockMove, Supplier, Tenant } from '../domain/types'
+import { diaISO } from '../domain/format'
+import type { Bom, Channel, Connector, DailyPlanLine, Device, Historico, Label, Location, Material, Member, NfeInbound, Notification, Operator, Product, PurchaseOrder, ScanEvent, StockMove, Supplier, Tenant } from '../domain/types'
 import { custoFicha } from '../domain/storeFicha'
 import { checar } from './erros'
 import * as M from './mapeadores'
@@ -143,6 +144,63 @@ export async function lerNotifications(ctx: Ctx): Promise<Notification[]> {
 export async function lerChannels(ctx: Ctx): Promise<Channel[]> {
   const res = await ctx.sb.from('channels').select('id,nome,preset,ativo,comissao_pct,taxa_fixa,taxa_fixa_abaixo_de,frete_vendedor,frete_gratis_acima_de,imposto_venda_pct,ads_pct,parcelamento_pct,outros_pct,observacao').eq('tenant_id', ctx.tenantId()).is('deleted_at', null).order('nome')
   return ((checar(res) ?? []) as M.ChannelRow[]).map(M.channelDoBanco)
+}
+
+// --- Histórico dos gráficos ----------------------------------------------------------------------
+// Não há view agregada por dia: o PostgREST não agrupa, então a soma por dia é feita aqui, no
+// mapeador. O limite de linhas é tratado encurtando o período (série menor e verdadeira) em vez de
+// mostrar um total pela metade como se fosse o do dia inteiro.
+
+/** Janela do histórico de produção: o maior período oferecido na aba Produtividade. */
+export const DIAS_PRODUCAO = 90
+/** Janela do histórico de vendas: o período do cartão do Painel. */
+export const DIAS_VENDAS = 14
+/** Teto de linhas por leitura. Acima dele a série sai marcada como truncada. */
+const LIMITE_LINHAS = 5000
+
+export async function lerHistorico(ctx: Ctx): Promise<Historico> {
+  const [producao, vendas] = await Promise.all([
+    tolerante(lerHistoricoProducao(ctx), { dias: [] as Historico['producao'], truncada: false }),
+    tolerante(lerHistoricoVendas(ctx), { dias: [] as Historico['vendas'], truncada: false }),
+  ])
+  return { producao: producao.dias, vendas: vendas.dias, exemplo: false, truncada: { producao: producao.truncada, vendas: vendas.truncada } }
+}
+
+/** Projetado e bipado por dia, de v_daily_plan. O eixo é o dia de produção (respeita a hora de virada). */
+async function lerHistoricoProducao(ctx: Ctx) {
+  const ate = diaAtual(ctx)
+  const desde = M.somaDias(ate, -(DIAS_PRODUCAO - 1))
+  const res = await ctx.sb
+    .from('v_daily_plan')
+    .select('dia,product_id,projetado,bipado', { count: 'exact' })
+    .eq('tenant_id', ctx.tenantId())
+    .gte('dia', desde)
+    .lte('dia', ate)
+    .order('dia', { ascending: false })
+    .limit(LIMITE_LINHAS)
+  const rows = (checar(res) ?? []) as M.HistoricoProducaoRow[]
+  const truncada = typeof res.count === 'number' && res.count > rows.length
+  const inicio = truncada ? M.primeiroDiaCompleto(rows.map(M.diaDaLinha), ate) : desde
+  return { dias: M.serieProducaoDoBanco(rows, M.intervaloDias(inicio, ate)), truncada }
+}
+
+/** Unidades vendidas por dia, de orders + order_items. Só pedido que virou demanda ou carteira. */
+async function lerHistoricoVendas(ctx: Ctx) {
+  const ate = diaISO() // venda é do dia de calendário do pedido; hora de virada é de produção
+  const desde = M.somaDias(ate, -(DIAS_VENDAS - 1))
+  const res = await ctx.sb
+    .from('orders')
+    .select('confirmed_at,order_items(quantidade)', { count: 'exact' })
+    .eq('tenant_id', ctx.tenantId())
+    .in('significado', ['demanda', 'carteira'])
+    .gte('confirmed_at', new Date(`${desde}T00:00:00`).toISOString())
+    .lt('confirmed_at', new Date(`${M.somaDias(ate, 1)}T00:00:00`).toISOString())
+    .order('confirmed_at', { ascending: false })
+    .limit(LIMITE_LINHAS)
+  const rows = (checar(res) ?? []) as unknown as M.HistoricoVendasRow[]
+  const truncada = typeof res.count === 'number' && res.count > rows.length
+  const inicio = truncada ? M.primeiroDiaCompleto(rows.map(M.diaDaVenda), ate) : desde
+  return { dias: M.serieVendasDoBanco(rows, M.intervaloDias(inicio, ate)), truncada }
 }
 
 /** Tabelas que podem ainda não existir (migrations de outra frente): devolve vazio em vez de derrubar a tela. */

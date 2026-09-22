@@ -6,6 +6,7 @@ import type {
   Connector,
   DailyPlanLine,
   Device,
+  Historico,
   Label,
   Location,
   Material,
@@ -29,6 +30,8 @@ export interface Snapshot {
   suppliers: Supplier[]
   boms: Bom[]
   dailyPlan: DailyPlanLine[]
+  /** Séries dos gráficos (produção e vendas por dia). Do banco, ou de exemplo no modo memória. */
+  historico: Historico
   labels: Label[]
   scans: ScanEvent[]
   stockMoves: StockMove[]
