@@ -9,7 +9,7 @@
     "lint": "oxlint",
     "test": "vitest run --passWithNoTests",
     "preview": "vite preview",
-    "deploy": "pnpm run build && wrangler pages deploy",
+    "deploy:pages": "pnpm run build && wrangler pages deploy",
     "deploy:preview": "pnpm run build && wrangler pages deploy --branch preview"
   },
   "dependencies": {

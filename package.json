@@ -10,7 +10,7 @@
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
     "db:test": "bash supabase/tests/run.sh",
-    "deploy:web": "pnpm --filter @prodio/web deploy",
+    "deploy:web": "pnpm --filter @prodio/web deploy:pages",
     "deploy:worker": "pnpm --filter @prodio/worker deploy"
   },
   "devDependencies": {

@@ -31,6 +31,8 @@ Para o build local, o arquivo é `apps/web/.env` (copiado de `.env.example`). Pa
 
 ## 2. Publicar pela linha de comando (caminho mais rápido)
 
+Todos os comandos desta seção rodam **na raiz do repositório**, não dentro de `apps/web`.
+
 Uma vez, para autorizar a máquina e criar o projeto:
 
 ```bash
