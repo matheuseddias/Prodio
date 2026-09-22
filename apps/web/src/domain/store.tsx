@@ -7,7 +7,7 @@ import { useAuth, type TenantResumo } from '../app/auth'
 import { mensagemErro } from '../data/erros'
 import * as local from '../data/local'
 import { MemoryRepo, snapshotExemplo } from '../data/memoryRepo'
-import { novoId, type ModoDados, type OperadorInput, type Patch, type Repo, type Retorno, type ScanResult, type Snapshot } from '../data/repo'
+import { novoId, type ModoDados, type OperadorInput, type Parte, type Patch, type Repo, type Retorno, type ScanResult, type Snapshot } from '../data/repo'
 import { modoDados, supabase } from '../data/supabaseClient'
 import { SupabaseRepo } from '../data/supabaseRepo'
 import { historicoVazio } from './historico'
@@ -58,6 +58,13 @@ export interface Meta {
   erroAcao: string | null
   limparErro: () => void
   recarregar: () => Promise<void>
+  /**
+   * Relê só as fatias que uma escrita feita fora do store mudou (ex.: o worker sincronizando
+   * pedidos). Diferente de `recarregar`, não liga o `loading` da tela inteira: o AppShell troca a
+   * página por um esqueleto quando isso acontece, e a página perderia o que ela acabou de mostrar
+   * — o resultado da própria ação. Falha aqui vira aviso discreto, nunca derruba o que já deu certo.
+   */
+  recarregarFatias: (partes: Parte[]) => Promise<void>
   tenants: TenantResumo[]
   pendentesBipes: number
   sincronizarBipes: () => Promise<void>
@@ -229,6 +236,18 @@ export function StoreProvider({ children, repo: repoProp }: { children: ReactNod
   const removeChannel = useCallback<Actions['removeChannel']>((id) => executar((a) => local.removeChannel(a, id), () => repo.removeChannel(id)), [executar, repo])
   const setPrecoVenda = useCallback<Actions['setPrecoVenda']>((productId, channelId, preco) => executar((a) => local.setPrecoVenda(a, productId, channelId, preco), () => repo.setPrecoVenda(productId, channelId, preco)), [executar, repo])
 
+  const recarregarFatias = useCallback<Meta['recarregarFatias']>(
+    async (partes) => {
+      if (modo === 'memoria') return
+      // Entra na mesma fila das ações: uma releitura que ultrapassasse uma escrita ainda em voo
+      // traria o estado de antes dela e desfaria na tela o que o usuário acabou de fazer.
+      const tarefa = cadeia.current.then(() => repo.recarregar(partes)).then(aplicarPatch, (e: unknown) => setErroAcao(mensagemErro(e)))
+      cadeia.current = tarefa
+      await tarefa
+    },
+    [modo, repo, aplicarPatch],
+  )
+
   const limparErro = useCallback(() => setErroAcao(null), [])
   const value = useMemo(
     () => ({
@@ -236,10 +255,10 @@ export function StoreProvider({ children, repo: repoProp }: { children: ReactNod
       registerScan, reverseScan, setProjetado, printLabels, addStockMove, upsertProduct, upsertMaterial, upsertSupplier, saveBom,
       createPurchaseOrder, updatePurchaseOrder, receiveNfe, updateNfe, markNotification, setConnector, retryOutbox, upsertMember,
       upsertDevice, setTenant, upsertChannel, removeChannel, setPrecoVenda, annulLabel, addNfe, removeMember, removeDevice, upsertOperator,
-      modo, loading, erro, erroAcao, limparErro, recarregar: carregar, tenants: auth.tenants,
+      modo, loading, erro, erroAcao, limparErro, recarregar: carregar, recarregarFatias, tenants: auth.tenants,
       pendentesBipes: bipes.pendentes, sincronizarBipes: bipes.drenar,
     }),
-    [s, registerScan, reverseScan, setProjetado, printLabels, addStockMove, upsertProduct, upsertMaterial, upsertSupplier, saveBom, createPurchaseOrder, updatePurchaseOrder, receiveNfe, updateNfe, markNotification, setConnector, retryOutbox, upsertMember, upsertDevice, setTenant, upsertChannel, removeChannel, setPrecoVenda, annulLabel, addNfe, removeMember, removeDevice, upsertOperator, modo, loading, erro, erroAcao, limparErro, carregar, auth.tenants, bipes.pendentes, bipes.drenar],
+    [s, registerScan, reverseScan, setProjetado, printLabels, addStockMove, upsertProduct, upsertMaterial, upsertSupplier, saveBom, createPurchaseOrder, updatePurchaseOrder, receiveNfe, updateNfe, markNotification, setConnector, retryOutbox, upsertMember, upsertDevice, setTenant, upsertChannel, removeChannel, setPrecoVenda, annulLabel, addNfe, removeMember, removeDevice, upsertOperator, modo, loading, erro, erroAcao, limparErro, carregar, recarregarFatias, auth.tenants, bipes.pendentes, bipes.drenar],
   )
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>

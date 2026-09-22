@@ -266,6 +266,12 @@ export interface Connector {
   nome: string
   status: 'conectado' | 'erro' | 'desconectado'
   ultimoSync?: string
+  /**
+   * `connectors.ultimo_erro`: o motivo da última falha, como o worker gravou (cron de 5 min ou
+   * teste de conexão). Já vem escrito em português para o dono ler — é o único sintoma que existe
+   * de um robô que parou, e sem ele a tela só sabe dizer "—".
+   */
+  ultimoErro?: string
   cursor?: string
   pedidos24h?: number
   outboxPendentes?: number

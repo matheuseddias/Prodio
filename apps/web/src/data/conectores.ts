@@ -213,3 +213,26 @@ export interface RespostaTeste {
 export function testarConector(connectorId: string): Promise<RespostaTeste> {
   return chamarWorker<RespostaTeste>(`/connectors/${connectorId}/test`, { timeoutMs: 45_000 })
 }
+
+export interface RespostaSync {
+  ok: true
+  /** Quantos pedidos a plataforma devolveu nesta rodada (0 é resposta legítima: nada novo). */
+  pedidos: number
+  /** Frase pronta para a tela, escrita pelo worker. */
+  detalhe: string
+}
+/**
+ * Roda AGORA a mesma sincronização do cron, para este conector.
+ *
+ * Por que esta rota existe: o cron do worker roda de 5 em 5 minutos e é o único jeito de um sync
+ * acontecer. Quem acabou de conectar não tem o que fazer além de esperar, e se der errado o motivo
+ * só aparece em `wrangler tail`. Este botão troca a espera por uma resposta — inclusive a resposta
+ * ruim, que é o que hoje some.
+ *
+ * Prazo maior que o do teste: aqui o worker conversa com a plataforma, pagina pedidos e grava tudo.
+ * Falhar por timeout na tela enquanto o worker termina a rodada não perde nada — o sync seguinte
+ * continua de onde o cursor parou.
+ */
+export function sincronizarConector(connectorId: string): Promise<RespostaSync> {
+  return chamarWorker<RespostaSync>(`/connectors/${connectorId}/sync`, { timeoutMs: 60_000 })
+}

@@ -146,8 +146,12 @@ function mensagemPorStatus(status: number): string {
   return `O worker recusou a chamada (HTTP ${status}).`
 }
 
-/** Deixa a frase do worker apresentável sem reescrevê-la: ela já vem escrita para humano. */
-function comoFrase(texto: string): string {
+/**
+ * Deixa a frase do worker apresentável sem reescrevê-la: ela já vem escrita para humano.
+ * Vale para o `erro` e para o `detalhe` de sucesso — as duas saem do worker em minúscula, para
+ * serem encaixadas numa frase maior, e as duas acabam sozinhas numa caixa na tela.
+ */
+export function comoFrase(texto: string): string {
   const t = texto.trim()
   if (!t) return t
   const inicio = t[0].toUpperCase() + t.slice(1)

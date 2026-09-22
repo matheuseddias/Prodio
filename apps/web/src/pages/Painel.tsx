@@ -36,7 +36,11 @@ export default function Painel() {
 
   const produzido = s.dailyPlan.reduce((a, l) => a + l.bipado, 0)
   const projetado = s.dailyPlan.reduce((a, l) => a + l.projetado, 0)
-  const pedidos24h = s.connectors[0]?.pedidos24h ?? 0
+  // `?? 0` aqui mostrava "Pedidos 24h: 0" com toda a segurança de um número real. E ninguém
+  // escreve `connectors.config.pedidos_24h` (nem o worker, nem migration nenhuma), então com banco
+  // de verdade o valor é SEMPRE desconhecido: a fábrica com pedidos entrando lia zero no painel.
+  // Desconhecido agora aparece como "—" — o painel volta a dizer o que sabe e o que não sabe.
+  const pedidos24h = s.connectors[0]?.pedidos24h
   const abaixoMinimo = s.materials.filter((m) => m.saldo < m.minimo)
   const ocsHoje = s.purchaseOrders.filter((po) => (po.status === 'aberta' || po.status === 'parcial') && po.entregaPrevista === hoje)
   const ocsAtrasadas = s.purchaseOrders.filter((po) => (po.status === 'aberta' || po.status === 'parcial') && !!po.entregaPrevista && po.entregaPrevista < hoje)
@@ -92,7 +96,12 @@ export default function Painel() {
           />
         </Link>
         <Link to="/conectores">
-          <Stat label="Pedidos 24h" value={num(pedidos24h)} hint={s.connectors[0]?.nome} icon={<ShoppingCart size={16} />} />
+          <Stat
+            label="Pedidos 24h"
+            value={pedidos24h === undefined ? '—' : num(pedidos24h)}
+            hint={pedidos24h === undefined ? 'nenhum hub envia este número ainda' : s.connectors[0]?.nome}
+            icon={<ShoppingCart size={16} />}
+          />
         </Link>
         <Link to="/estoque">
           <Stat label="Insumos abaixo do mínimo" value={num(abaixoMinimo.length)} tone={abaixoMinimo.length ? 'danger' : 'ok'} icon={<Boxes size={16} />} />

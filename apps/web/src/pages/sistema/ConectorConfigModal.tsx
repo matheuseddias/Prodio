@@ -249,10 +249,11 @@ export function ConectorConfigModal({ c, onClose }: { c: Connector; onClose: () 
               <Input readOnly value={c.cursor ?? '—'} className="font-mono bg-surface-2" />
             </Field>
           </div>
-          {/* Não existe rota de "forçar sync" no worker: o botão de antes só esperava 1 s e marcava
-              o conector como conectado. Quem sincroniza é o cron, de 5 em 5 minutos. */}
+          {/* Forçar sync agora é POST /connectors/:id/sync, e o botão dele está no cartão do
+              conector (ConectorCard): é lá que a pessoa olha quando quer saber se o robô rodou.
+              Aqui só se diz onde ele está, para ninguém procurar um botão que foi para outra tela. */}
           <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2 text-[13px]">
-            <span className="text-muted">A sincronização roda sozinha no worker, a cada 5 minutos.</span>
+            <span className="text-muted">A sincronização roda sozinha no worker, a cada 5 minutos. Para rodar agora, use “Sincronizar agora” no cartão do conector.</span>
             <span className="font-medium">Último: {c.ultimoSync ? `${dataHoraBR(c.ultimoSync)} (${relativo(c.ultimoSync)})` : 'ainda não rodou'}</span>
           </div>
           {modoApp === 'supabase' && (

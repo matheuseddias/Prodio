@@ -299,6 +299,9 @@ export function connectorDoBanco(r: ConnectorRow, outboxPendentes = 0): Connecto
     nome: r.nome,
     status: r.status,
     ultimoSync: strOpt(r.ultimo_sync),
+    // O worker grava aqui o motivo da última falha (cron ou teste). A coluna já vinha na leitura e
+    // parava neste mapeador: sem ela, um conector quebrado chega na tela sem sintoma nenhum.
+    ultimoErro: strOpt(r.ultimo_erro),
     cursor: typeof cfg.cursor === 'string' ? cfg.cursor : undefined,
     pedidos24h: numOpt(cfg.pedidos_24h),
     outboxPendentes,

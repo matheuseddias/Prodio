@@ -9,6 +9,7 @@ import { auditor } from './jobs/auditor'
 import { log, mensagemErro } from './log'
 import { rotaOauthCallback, rotaOauthIr, rotaOauthStart, rotaSetCredentials, type PlataformaOauth } from './rotas/credenciais'
 import { rotaNfeXml } from './rotas/nfe'
+import { rotaSincronizarConector } from './rotas/sincronizar'
 import { rotaTestarConector } from './rotas/testar'
 import { rotaWebhookBling } from './rotas/webhooks'
 import { erro, json } from './rotas/util'
@@ -29,6 +30,9 @@ const ROTAS: { metodo: string; padrao: RegExp; handler: (req: Request, env: Env,
   { metodo: 'POST', padrao: /^\/nfe\/xml$/, handler: (req, env) => rotaNfeXml(req, env) },
   { metodo: 'POST', padrao: new RegExp(`^/connectors/(${UUID})/credentials$`), handler: (req, env, _ctx, [id]) => rotaSetCredentials(req, env, id) },
   { metodo: 'POST', padrao: new RegExp(`^/connectors/(${UUID})/test$`), handler: (req, env, _ctx, [id]) => rotaTestarConector(req, env, id) },
+  // Sincronização manual do cartão do conector. Recebe o ctx porque pode devolver a resposta
+  // antes de a leitura terminar e deixar o resto rodando em waitUntil (ver rotas/sincronizar.ts).
+  { metodo: 'POST', padrao: new RegExp(`^/connectors/(${UUID})/sync$`), handler: (req, env, ctx, [id]) => rotaSincronizarConector(req, env, ctx, id) },
   { metodo: 'POST', padrao: new RegExp(`^/connectors/(${UUID})/(bling|tiny)/oauth/start$`), handler: (req, env, _ctx, [id, p]) => rotaOauthStart(req, env, id, p as PlataformaOauth) },
   // /oauth/go e /oauth/callback são navegações da janela de autorização, não fetch da interface:
   // não têm JWT. Quem autoriza as duas é o state assinado, e o cookie de vínculo que a primeira
@@ -52,17 +56,18 @@ export function metodosDaRota(caminho: string): string[] {
 }
 
 export async function rodarCron(expressao: string | undefined, env: Env): Promise<void> {
-  const tipo = classificarCron(expressao)
+  const { tipo, reconhecida } = classificarCron(expressao)
   const db = new Db(env)
+  // Expressão que ninguém reconhece NÃO vira "não faz nada": ver o comentário de cron.ts. Roda o
+  // ciclo curto, que é idempotente, e deixa o aviso alto no log para quem for publicar.
+  if (!reconhecida) log('warn', 'cron.desconhecido', { cron: expressao, rodando: tipo })
   log('info', 'cron.inicio', { cron: expressao, tipo })
-  if (tipo === 'sync') {
-    await syncPedidos(env, db)
-    await aplicarOutbox(env, db)
-  } else if (tipo === 'auditor') {
+  if (tipo === 'auditor') {
     await auditor(env, db)
-  } else {
-    log('warn', 'cron.desconhecido', { cron: expressao })
+    return
   }
+  await syncPedidos(env, db)
+  await aplicarOutbox(env, db)
 }
 
 export default {

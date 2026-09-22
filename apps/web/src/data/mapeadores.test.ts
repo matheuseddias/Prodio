@@ -5,6 +5,7 @@ import {
   bomsDoBanco,
   channelDoBanco,
   channelParaBanco,
+  connectorDoBanco,
   diaDaVenda,
   intervaloDias,
   materialDoBanco,
@@ -111,6 +112,13 @@ describe('bipes, OC, NF-e e outbox', () => {
     expect(n.itens[0]).toMatchObject({ materialId: 'm1', fator: 7.7, qtdConsumo: 15.4 })
     expect(n.poIds).toEqual(['oc1'])
     expect(n.supplierId).toBeUndefined()
+  })
+  it('conector: o motivo da falha que o worker gravou chega até a tela', () => {
+    // A coluna já vinha na consulta e parava no mapeador: o cartão só sabia dizer "Erro", sem
+    // motivo, e o texto ficava visível apenas para quem rodasse `wrangler tail`.
+    const linha = { id: 'c1', plataforma: 'baselinker' as const, nome: 'Eddias', status: 'erro' as const, config: null, ultimo_sync: null, ultimo_erro: 'token inválido (401)' }
+    expect(connectorDoBanco(linha)).toMatchObject({ status: 'erro', ultimoErro: 'token inválido (401)', ultimoSync: undefined })
+    expect(connectorDoBanco({ ...linha, status: 'conectado', ultimo_erro: null }).ultimoErro).toBeUndefined()
   })
   it('outbox normaliza status e id', () => {
     expect(outboxDoBanco({ id: 7, connector_id: 'c1', product_id: 'p1', delta: '2', status: 'em_processamento', erro: null, created_at: 'x' })).toMatchObject({ id: '7', status: 'pendente', delta: 2 })

@@ -14,56 +14,14 @@ import { criarConector } from '../conectores'
 import { ErroConector, type Conector, type Plataforma } from '../conectores/tipos'
 import { desativarSeSemCredenciais, ehSemCredenciais } from '../jobs/semCredenciais'
 import { log, mensagemErro } from '../log'
+import { mensagemDaFalha, nomeDaPlataforma, redigirSegredos, resumir } from '../conectores/mensagens'
 import { ErroRota, exigirAdminDoConector, exigirUsuario, json, tratarErro, type ConectorAutorizado, type Usuario } from './util'
 
-const NOMES: Record<string, string> = { baselinker: 'BaseLinker', bling: 'Bling', tiny: 'Tiny', omie: 'Omie', magis5: 'Magis5' }
-export const nomeDaPlataforma = (p: string): string => NOMES[p] ?? p
-
-const LIMITE_DETALHE = 180
-const resumir = (s: string): string => (s.length > LIMITE_DETALHE ? `${s.slice(0, LIMITE_DETALHE)}…` : s)
-
-// Tamanho a partir do qual um valor de credencial é tratado como segredo. Abaixo disso é config
-// curta (um inventory_id "42") e trocar isso por um aviso só deixaria a mensagem confusa.
-const MIN_SEGREDO = 8
-
-// Última barreira antes de um texto virar resposta HTTP ou linha de log.
-//
-// O caminho genérico de mensagemDaFalha repassa e.message, e alguns adaptadores embutem ali um
-// pedaço da resposta CRUA da plataforma (oauthTokenBling: `texto.slice(0, 200)`; bling.chamar: o
-// corpo quando não é JSON conhecido). Nada garante que um provedor nunca ecoe de volta o que
-// recebeu — servidor OAuth devolvendo o client_id no erro é comum, e o secret vai no mesmo corpo.
-// Em vez de confiar em cada adaptador, procuramos aqui os valores que ACABAMOS de decifrar: se um
-// deles aparece no texto, sai. Roda antes de resumir(), senão a truncagem deixaria meio segredo.
-export function redigirSegredos(texto: string, credenciais: Credenciais | null): string {
-  if (!texto || !credenciais) return texto
-  let saida = texto
-  for (const valor of Object.values(credenciais)) {
-    if (typeof valor !== 'string' || valor.length < MIN_SEGREDO) continue
-    if (saida.includes(valor)) saida = saida.split(valor).join('[credencial oculta]')
-  }
-  return saida
-}
-
-// Erro da plataforma vira instrução em português. Nunca devolve credencial nem pedaço dela: além
-// das mensagens já sanitizadas dos adaptadores (ver mensagemErroTiny), o texto passa por
-// redigirSegredos com as credenciais deste conector em mãos.
-export function mensagemDaFalha(plataforma: string, e: unknown, credenciais: Credenciais | null = null): string {
-  const nome = nomeDaPlataforma(plataforma)
-  // Sem ErroConector não houve resposta da plataforma: é rede, DNS ou timeout.
-  if (!(e instanceof ErroConector)) return `não foi possível falar com o ${nome} agora; confira a conexão e tente de novo em alguns minutos`
-  const status = e.status ?? 0
-  const codigo = (e.codigo ?? '').toUpperCase()
-  const recusouCredencial = status === 401 || status === 403 || codigo === 'REAUTH' || /AUTH|TOKEN|PERMISS/.test(codigo)
-  if (recusouCredencial) {
-    if (plataforma === 'baselinker') return 'o token foi recusado pelo BaseLinker; gere um novo em Minha conta > API e salve aqui'
-    if (plataforma === 'tiny') return 'o Tiny recusou a autorização; use "Conectar o Tiny" para autorizar de novo'
-    if (plataforma === 'bling') return 'o Bling recusou a autorização; use "Conectar o Bling" para autorizar de novo'
-    return `o ${nome} recusou a credencial; grave a credencial de novo`
-  }
-  if (status === 429) return `o ${nome} está limitando as chamadas agora; espere um minuto e teste de novo`
-  if (status >= 500) return `o ${nome} respondeu com erro no servidor dele (${status}); o problema é do lado da plataforma, tente mais tarde`
-  return `o ${nome} recusou a chamada de teste: ${resumir(redigirSegredos(e.message, credenciais))}`
-}
+// As frases para humano (nome da plataforma, redação de segredo, erro da plataforma virando
+// instrução) moram em ../conectores/mensagens.ts: o cron e a sincronização manual escrevem o mesmo
+// tipo de texto no mesmo lugar (connectors.ultimo_erro), e o cartão do conector mostra os três.
+// Reexportadas aqui porque esta rota foi onde elas nasceram e é por onde o resto do worker as importa.
+export { mensagemDaFalha, nomeDaPlataforma, redigirSegredos, resumir } from '../conectores/mensagens'
 
 type DbTeste = Pick<Db, 'getCredentials' | 'setCredentials' | 'marcarStatusConector'>
 

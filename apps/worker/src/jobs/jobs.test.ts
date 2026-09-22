@@ -54,7 +54,9 @@ describe('syncPedidos', () => {
     }
     const resumo = await syncPedidos(env, db, montar)
     expect(resumo).toEqual({ conectores: 2, ok: 1, falhas: 1, pedidos: 1 })
-    expect(db.setSyncState).toHaveBeenCalledWith('a', null, false, 'token inválido')
+    // O cartão do conector MOSTRA este texto (ConectorSituacao.ts): o que vai para lá é a frase
+    // para humano, nunca a mensagem crua do adaptador. A crua fica no log.
+    expect(db.setSyncState).toHaveBeenCalledWith('a', null, false, 'não foi possível falar com o BaseLinker agora; confira a conexão e tente de novo em alguns minutos')
     expect(db.setSyncState).toHaveBeenCalledWith('b', { date_confirmed_from: 15 }, true, null)
     expect(db.upsertOrders).toHaveBeenCalledWith('t-b', 'b', [
       { external_id: '1', external_status: '7', confirmed_at: null, updated_at_external: null, total: 10, raw: null, itens: [{ sku_externo: 'CAM-01', quantidade: 1, preco: 10 }] },
@@ -127,7 +129,7 @@ describe('conector ativo sem credencial', () => {
       throw new ErroConector('baselinker', 'o Tiny recusou o token renovado', { codigo: 'reauth', status: 401 })
     })
     expect(db.marcarStatusConector).not.toHaveBeenCalled()
-    expect(db.setSyncState).toHaveBeenCalledWith('a', null, false, 'o Tiny recusou o token renovado')
+    expect(db.setSyncState).toHaveBeenCalledWith('a', null, false, 'o token foi recusado pelo BaseLinker; gere um novo em Minha conta > API e salve aqui')
   })
 
   it('aplicarOutbox devolve o lote e desativa sem marcar erro de sync', async () => {
@@ -154,5 +156,45 @@ describe('auditor · compararSaldos', () => {
     const bipados = new Map([['p1', 5], ['p2', 3]])
     const d = compararSaldos(produtos, saldos, anteriores, bipados)
     expect(d).toEqual([{ sku: 'B', product_id: 'p2', saldo_hub: 7, saldo_anterior: 5, bipado_hoje: 3, esperado: 8, diferenca: -1 }])
+  })
+})
+
+// O cron grava em connectors.ultimo_erro, e connectors é legível por QUALQUER membro do tenant
+// (policy connectors_select) — inclusive a sessão anônima do tablet do chão de fábrica. Desde que
+// o cartão do conector passou a mostrar essa coluna, o que vai para lá é interface, não log.
+describe('o que o cron grava no cartão', () => {
+  const dbComCredencial = (credenciais: Record<string, unknown>) => {
+    const db = dbFalso([row('a')]) as unknown as { getCredentials: unknown; setSyncState: { mock: { calls: unknown[][] } } }
+    ;(db as { getCredentials: () => Promise<Record<string, unknown>> }).getCredentials = async () => credenciais
+    return db as unknown as ReturnType<typeof dbFalso>
+  }
+
+  it('credencial ecoada pela plataforma não chega ao cartão nem ao log', async () => {
+    const segredo = 'segredo-do-app-do-bling'
+    const db = dbComCredencial({ client_secret: segredo })
+    await syncPedidos(env, db, async () => {
+      // oauthTokenBling repassa o corpo cru do provedor; servidor OAuth que ecoa o que recebeu é comum.
+      throw new ErroConector('bling', `OAuth Bling falhou (400): {"error":"invalid_client","client_secret":"${segredo}"}`, { status: 400 })
+    })
+    const gravado = (db.setSyncState.mock.calls[0] as unknown[])[3] as string
+    expect(gravado).not.toContain(segredo)
+    expect(gravado).toContain('[credencial oculta]')
+  })
+
+  it('falha do banco não vira "confira a conexão com a plataforma"', async () => {
+    const db = dbComCredencial({ token: 'bl-token-super-secreto' })
+    await syncPedidos(env, db, async () =>
+      conectorFalso({
+        pullOrders: async () => {
+          const e = new Error('worker_upsert_orders: permission denied')
+          e.name = 'ErroBanco'
+          throw e
+        },
+      }),
+    )
+    const gravado = (db.setSyncState.mock.calls[0] as unknown[])[3] as string
+    expect(gravado).toContain('problema interno nosso')
+    expect(gravado).not.toContain('confira a conexão')
+    expect(gravado).not.toContain('permission denied')
   })
 })

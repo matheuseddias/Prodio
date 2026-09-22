@@ -16,7 +16,11 @@ export default function Conectores() {
   const [config, setConfig] = useState<Connector | null>(null)
 
   const conectados = connectors.filter((c) => c.status === 'conectado').length
-  const pedidos24h = connectors.reduce((a, c) => a + (c.pedidos24h ?? 0), 0)
+  // Nenhum conector sabe o "pedidos 24h" hoje: ninguém escreve `connectors.config.pedidos_24h`.
+  // Somar com `?? 0` transformava "não sei" em "zero", que é o mesmo defeito que o cartão do
+  // conector acabou de perder. Sem nenhum hub informando, mostra "—".
+  const comPedidos24h = connectors.filter((c) => c.pedidos24h !== undefined)
+  const pedidos24h = comPedidos24h.length ? comPedidos24h.reduce((a, c) => a + (c.pedidos24h ?? 0), 0) : null
   const erros = outbox.filter((o) => o.status === 'erro').length
   const pendentes = outbox.filter((o) => o.status === 'pendente').length
 
@@ -30,7 +34,11 @@ export default function Conectores() {
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Conectados" value={`${conectados} / ${connectors.length}`} />
-        <Stat label="Pedidos 24h" value={num(pedidos24h)} hint="somando todos os hubs" />
+        <Stat
+          label="Pedidos 24h"
+          value={pedidos24h === null ? '—' : num(pedidos24h)}
+          hint={pedidos24h === null ? 'nenhum hub envia este número ainda' : 'somando todos os hubs'}
+        />
         <Stat label="Outbox pendente" value={pendentes} tone={pendentes ? 'warn' : undefined} />
         <Stat label="Outbox com erro" value={erros} tone={erros ? 'danger' : undefined} />
       </div>
