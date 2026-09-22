@@ -1,6 +1,9 @@
 import { CalendarClock, FileSearch, FileUp, Loader2, PackageOpen, ScanSearch } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../../app/auth'
+import { mensagemErro } from '../../data/erros'
+import { enviarXmlNfe } from '../../data/nfeXml'
 import { chaveFmt, dataBR } from '../../domain/format'
 import { useLookups, useStore } from '../../domain/store'
 import type { PurchaseOrder } from '../../domain/types'
@@ -18,10 +21,17 @@ type Estado = 'idle' | 'buscando' | 'falhou'
 export default function ReceberNaoEncontrada({ chave, ocs, onClose }: { chave: string; ocs: PurchaseOrder[]; onClose: () => void }) {
   const store = useStore()
   const { supplier } = useLookups()
+  const { tenantId } = useAuth()
   const nav = useNavigate()
   const [provedor, setProvedor] = useState<Estado>('idle')
   const [erp, setErp] = useState<Estado>('idle')
   const [xml, setXml] = useState<string | null>(null)
+  const [enviandoXml, setEnviandoXml] = useState(false)
+  const [erroXml, setErroXml] = useState<string | null>(null)
+  // Demonstração sem banco: a consulta ao provedor é encenada. Com banco de verdade não existe
+  // rota de consulta por chave no worker, e fabricar a nota a partir do pendente da OC colocaria
+  // um documento fiscal inventado em nfe_inbound — então o botão fica desligado com o motivo.
+  const demo = store.modo === 'memoria'
 
   // OC sugerida pelo CNPJ do emitente (está na chave); senão a primeira aberta.
   const { cnpj } = partesChave(chave)
@@ -31,9 +41,10 @@ export default function ReceberNaoEncontrada({ chave, ocs, onClose }: { chave: s
   const po = ocs.find((x) => x.id === poId)
 
   const erpNfe = store.connectors.find((c) => c.status === 'conectado' && c.capacidades.nfeCompra)
-  const ocupado = provedor === 'buscando' || erp === 'buscando'
+  const ocupado = provedor === 'buscando' || erp === 'buscando' || enviandoXml
 
   const consultarProvedor = () => {
+    if (!demo) return
     setProvedor('buscando')
     window.setTimeout(() => {
       if (chave !== CHAVE_DEMO_PROVEDOR) {
@@ -48,8 +59,36 @@ export default function ReceberNaoEncontrada({ chave, ocs, onClose }: { chave: s
     }, 2000)
   }
 
+  // Upload de XML: o arquivo vai para o worker, que roda o parser do core e grava a nota. A tela
+  // não inventa item nenhum — só mostra o que voltou. Chave diferente da bipada é caso comum
+  // (o operador escolheu o arquivo errado): o aviso diz isso e a nota fica no Recebimento.
+  const enviarXml = async (arquivo: File | undefined) => {
+    if (!arquivo) return
+    setErroXml(null)
+    setXml(arquivo.name)
+    if (demo) {
+      setErroXml('Sem banco configurado, o XML não é enviado a lugar nenhum. Este modo é só demonstração.')
+      return
+    }
+    setEnviandoXml(true)
+    try {
+      const r = await enviarXmlNfe(arquivo, tenantId)
+      await store.recarregar()
+      beepOk()
+      onClose()
+      nav(`/chao/receber/${r.chave}`)
+    } catch (e) {
+      beepErro()
+      setErroXml(mensagemErro(e))
+    } finally {
+      setEnviandoXml(false)
+    }
+  }
+
+  // Buscar no ERP também depende de uma rota de consulta por chave no worker (findInboundNfe), que
+  // ainda não existe: fora da demonstração o botão fica desligado em vez de encenar uma busca.
   const buscarErp = () => {
-    if (!erpNfe) return
+    if (!erpNfe || !demo) return
     setErp('buscando')
     window.setTimeout(() => {
       setErp('falhou')
@@ -115,18 +154,20 @@ export default function ReceberNaoEncontrada({ chave, ocs, onClose }: { chave: s
         <button
           type="button"
           onClick={consultarProvedor}
-          disabled={ocupado}
-          className="flex h-16 w-full items-center gap-3 rounded-2xl border border-teal-500/40 bg-teal-500/10 px-4 text-left active:bg-teal-500/20 disabled:opacity-70"
+          disabled={ocupado || !demo}
+          className="flex h-16 w-full items-center gap-3 rounded-2xl border border-teal-500/40 bg-teal-500/10 px-4 text-left active:bg-teal-500/20 disabled:opacity-60"
         >
           {provedor === 'buscando' ? <Loader2 size={22} className="animate-spin text-teal-300" /> : <ScanSearch size={22} className="text-teal-300" />}
           <span className="flex-1">
             <span className="block text-[16px] font-medium">Consultar por chave no provedor</span>
             <span className={cx('block text-[12px]', provedor === 'falhou' ? 'text-red-300' : 'text-slate-400')}>
-              {provedor === 'buscando'
-                ? 'Consultando a SEFAZ pelo provedor de NF-e…'
-                : provedor === 'falhou'
-                  ? 'O provedor não encontrou esta chave. Tente o ERP, o XML ou receba às cegas.'
-                  : 'Busca o XML na SEFAZ agora (provedor configurado em Conectores)'}
+              {!demo
+                ? 'Nenhum provedor de NF-e configurado — a consulta por chave ainda não está disponível. Use o XML ou receba às cegas.'
+                : provedor === 'buscando'
+                  ? 'Consultando a SEFAZ pelo provedor de NF-e…'
+                  : provedor === 'falhou'
+                    ? 'O provedor não encontrou esta chave. Tente o ERP, o XML ou receba às cegas.'
+                    : 'Busca o XML na SEFAZ agora (demonstração)'}
             </span>
           </span>
         </button>
@@ -134,7 +175,7 @@ export default function ReceberNaoEncontrada({ chave, ocs, onClose }: { chave: s
         <button
           type="button"
           onClick={buscarErp}
-          disabled={ocupado || !erpNfe}
+          disabled={ocupado || !erpNfe || !demo}
           className="flex h-16 w-full items-center gap-3 rounded-2xl border border-slate-700 bg-slate-900 px-4 text-left active:bg-slate-800 disabled:opacity-60"
         >
           {erp === 'buscando' ? <Loader2 size={22} className="animate-spin text-slate-300" /> : <FileSearch size={22} className="text-teal-300" />}
@@ -143,22 +184,26 @@ export default function ReceberNaoEncontrada({ chave, ocs, onClose }: { chave: s
             <span className={cx('block text-[12px]', erp === 'falhou' ? 'text-red-300' : 'text-slate-400')}>
               {!erpNfe
                 ? 'Nenhum ERP com NF-e de compra conectado'
-                : erp === 'buscando'
-                  ? `Consultando ${erpNfe.nome.split(' ')[0]}…`
-                  : erp === 'falhou'
-                    ? 'O ERP não devolveu esta chave. Tente o XML ou receba às cegas.'
-                    : `Procura a NF-e pela chave em ${erpNfe.nome.split(' ')[0]}`}
+                : !demo
+                  ? 'Busca por chave no ERP ainda não disponível'
+                  : erp === 'buscando'
+                    ? `Consultando ${erpNfe.nome.split(' ')[0]}…`
+                    : erp === 'falhou'
+                      ? 'O ERP não devolveu esta chave. Tente o XML ou receba às cegas.'
+                      : `Procura a NF-e pela chave em ${erpNfe.nome.split(' ')[0]}`}
             </span>
           </span>
         </button>
 
-        <label className="flex h-16 cursor-pointer items-center gap-3 rounded-2xl border border-slate-700 bg-slate-900 px-4 active:bg-slate-800">
-          <FileUp size={22} className="text-teal-300" />
-          <span className="flex-1">
+        <label className={cx('flex h-16 items-center gap-3 rounded-2xl border border-slate-700 bg-slate-900 px-4', enviandoXml ? 'opacity-60' : 'cursor-pointer active:bg-slate-800')}>
+          {enviandoXml ? <Loader2 size={22} className="animate-spin text-teal-300" /> : <FileUp size={22} className="text-teal-300" />}
+          <span className="min-w-0 flex-1">
             <span className="block text-[16px] font-medium">Compartilhar XML</span>
-            <span className="block text-[12px] text-slate-400">{xml ? `${xml} — parser no servidor: em breve` : 'Do e-mail, WhatsApp ou arquivos'}</span>
+            <span className={cx('block truncate text-[12px]', erroXml ? 'text-red-300' : 'text-slate-400')}>
+              {erroXml ?? (enviandoXml ? `Enviando ${xml}…` : xml ? xml : 'Do e-mail, WhatsApp ou arquivos')}
+            </span>
           </span>
-          <input type="file" accept=".xml,text/xml" className="hidden" onChange={(e) => setXml(e.target.files?.[0]?.name ?? null)} />
+          <input type="file" accept=".xml,text/xml" className="hidden" disabled={enviandoXml} onChange={(e) => void enviarXml(e.target.files?.[0])} />
         </label>
 
         <button

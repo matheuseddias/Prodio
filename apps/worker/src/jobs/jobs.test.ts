@@ -1,9 +1,11 @@
 import type { ConectorRow, Db, LoteOutbox } from '../db'
 import type { Env } from '../env'
-import type { Conector } from '../conectores/tipos'
+import { SEM_CREDENCIAIS, montarConector } from '../conectores'
+import { ErroConector, type Conector } from '../conectores/tipos'
 import { silenciarLog } from '../log'
 import { aplicarOutbox, classificarResultados } from './aplicarOutbox'
-import { compararSaldos } from './auditor'
+import { auditor, compararSaldos } from './auditor'
+import { MSG_SEM_CREDENCIAIS } from './semCredenciais'
 import { syncPedidos } from './syncPedidos'
 
 silenciarLog(true)
@@ -31,6 +33,7 @@ function conectorFalso(sobrescrever: Partial<Conector> = {}): Conector {
 function dbFalso(conectores: ConectorRow[], lote: LoteOutbox[] = []) {
   const db = {
     listarConectoresAtivos: vi.fn(async () => conectores),
+    marcarStatusConector: vi.fn(async () => {}),
     getSyncState: vi.fn(async () => ({ connector_id: 'x', cursor: { date_confirmed_from: 10 }, last_run_at: null, last_ok_at: null, runs: 1 })),
     setSyncState: vi.fn(async () => {}),
     upsertOrders: vi.fn(async (_t: string, _c: string, pedidos: unknown[]) => pedidos.length),
@@ -94,6 +97,52 @@ describe('aplicarOutbox', () => {
     expect(db.requeueOutbox).toHaveBeenCalledWith([1, 2, 3, 4, 5])
     expect(db.setSyncState).toHaveBeenCalledWith('b', null, false, 'outbox: catálogo fora')
     expect(resumo.aplicados).toBe(0)
+  })
+})
+
+describe('conector ativo sem credencial', () => {
+  // O seed cria o conector do BaseLinker 'conectado' e sem credencial (credencial é cifrada).
+  // Sem cura, o cron repetiria a mesma falha a cada 5 minutos, para sempre.
+  const semCredencial = async (r: ConectorRow) => montarConector(r, env, { getCredentials: async () => null, setCredentials: async () => {} })
+
+  it('a fábrica marca o caso com um código próprio', async () => {
+    await expect(semCredencial(row('a'))).rejects.toMatchObject({ name: 'ErroConector', codigo: SEM_CREDENCIAIS })
+    // Credencial vazia é o mesmo caso: não há o que tentar.
+    await expect(montarConector(row('a'), env, { getCredentials: async () => ({}), setCredentials: async () => {} })).rejects.toMatchObject({ codigo: SEM_CREDENCIAIS })
+  })
+
+  it('syncPedidos desativa em vez de gravar erro de sync, e não atrapalha o próximo tenant', async () => {
+    const db = dbFalso([row('a'), row('b')])
+    const montar = async (r: ConectorRow) => (r.id === 'a' ? semCredencial(r) : conectorFalso())
+    const resumo = await syncPedidos(env, db, montar)
+    expect(db.marcarStatusConector).toHaveBeenCalledWith('a', 't-a', 'desconectado', MSG_SEM_CREDENCIAIS)
+    expect(db.setSyncState).not.toHaveBeenCalledWith('a', null, false, expect.anything())
+    expect(db.setSyncState).toHaveBeenCalledWith('b', {}, true, null)
+    expect(resumo).toEqual({ conectores: 2, ok: 1, falhas: 1, pedidos: 0 })
+  })
+
+  it('token expirado e rede fora continuam tentando: só a ausência de credencial desativa', async () => {
+    const db = dbFalso([row('a')])
+    await syncPedidos(env, db, async () => {
+      throw new ErroConector('baselinker', 'o Tiny recusou o token renovado', { codigo: 'reauth', status: 401 })
+    })
+    expect(db.marcarStatusConector).not.toHaveBeenCalled()
+    expect(db.setSyncState).toHaveBeenCalledWith('a', null, false, 'o Tiny recusou o token renovado')
+  })
+
+  it('aplicarOutbox devolve o lote e desativa sem marcar erro de sync', async () => {
+    const db = dbFalso([row('a', { push_estoque: true })], [{ product_id: 'p1', sku: 'A', delta: 1, ids: [7] }])
+    await aplicarOutbox(env, db, semCredencial)
+    expect(db.requeueOutbox).toHaveBeenCalledWith([7])
+    expect(db.marcarStatusConector).toHaveBeenCalledWith('a', 't-a', 'desconectado', MSG_SEM_CREDENCIAIS)
+    expect(db.setSyncState).not.toHaveBeenCalled()
+  })
+
+  it('auditor também desativa', async () => {
+    const db = dbFalso([row('a')])
+    const resumo = await auditor(env, db, semCredencial)
+    expect(db.marcarStatusConector).toHaveBeenCalledWith('a', 't-a', 'desconectado', MSG_SEM_CREDENCIAIS)
+    expect(resumo.falhas).toBe(1)
   })
 })
 

@@ -126,9 +126,11 @@ export default function ImportarPlanilha({ open, onClose, titulo, campos, chave,
   const onFile = (f: File | undefined) => {
     if (!f) return
     setAviso(undefined)
+    // .xlsx é formato binário e não há parser aqui. Antes o conteúdo do arquivo do usuário era
+    // DESCARTADO e trocado pelas duas linhas de exemplo do Prodio — que seguiam o fluxo inteiro e
+    // iam parar no banco real como produto, insumo ou fornecedor. Agora o fluxo para.
     if (/\.xlsx?$/i.test(f.name)) {
-      setAviso('Leitura de .xlsx no servidor: em breve. Usando a planilha-exemplo para você conhecer o fluxo.')
-      carregarTexto(f.name, exemploCsv(campos))
+      setAviso('Por enquanto só .csv. No Excel ou no Google Planilhas use "Salvar como" / "Baixar" e escolha CSV — depois arraste o arquivo aqui.')
       return
     }
     const reader = new FileReader()
@@ -222,10 +224,10 @@ export default function ImportarPlanilha({ open, onClose, titulo, campos, chave,
             className="w-full rounded-xl border-2 border-dashed border-border bg-surface-2/40 px-4 py-10 text-center hover:border-accent hover:bg-accent-soft/30 transition-colors"
           >
             <Upload className="mx-auto text-faint mb-2" size={24} />
-            <div className="font-medium text-sm">Escolher arquivo .csv ou .xlsx</div>
-            <div className="text-[12px] text-muted mt-1">Separador ; ou , · primeira linha com os nomes das colunas</div>
+            <div className="font-medium text-sm">Escolher arquivo .csv</div>
+            <div className="text-[12px] text-muted mt-1">Separador ; ou , · primeira linha com os nomes das colunas · .xlsx ainda não é lido aqui</div>
           </button>
-          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,text/csv" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
+          <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-[12px] text-muted">
               Colunas esperadas: {campos.map((c) => (

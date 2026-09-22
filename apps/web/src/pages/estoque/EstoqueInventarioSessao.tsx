@@ -1,14 +1,17 @@
 import { AlertTriangle, CalendarClock, CheckCircle2, Coins, Plus } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
+import { useAuth } from '../../app/auth'
 import { brl, num } from '../../domain/format'
 import { useStore } from '../../domain/store'
 import type { Material } from '../../domain/types'
 import { Badge, Button, Field, Input, Modal, SearchInput, Select, cx } from '../../ui'
 import EstoqueInventarioItens from './EstoqueInventarioItens'
-import { LOCAIS_CONTAGEM, congelarItens, novoItem, resumoSessao, uid, unLabel, type ItemSessao, type SessaoInventario } from './inventarioSessoes'
+import { congelarItens, novoItem, resumoSessao, uid, unLabel, type ItemSessao, type SessaoInventario } from './inventarioSessoes'
 
 interface Props {
   sessao?: SessaoInventario
+  /** Locais da empresa (na demonstração, a lista fixa). Vem de quem chama para não ler o store aqui. */
+  locais: string[]
   idsIniciais: string[]
   sugestoes: { venceHoje: string[]; abaixoMinimo: string[]; maisCaros: string[] }
   onSalvar: (s: SessaoInventario) => void
@@ -16,13 +19,14 @@ interface Props {
   onClose: () => void
 }
 
-const nova = (): SessaoInventario => ({ id: `inv-${uid()}`, abertaEm: new Date().toISOString(), local: LOCAIS_CONTAGEM[0], por: 'Matheus Moreno', origem: 'desktop', status: 'aberta', itens: [] })
+const nova = (local: string, por: string): SessaoInventario => ({ id: `inv-${uid()}`, abertaEm: new Date().toISOString(), local, por, origem: 'desktop', status: 'aberta', itens: [] })
 
-export default function EstoqueInventarioSessao({ sessao, idsIniciais, sugestoes, onSalvar, onFechar, onClose }: Props) {
+export default function EstoqueInventarioSessao({ sessao, locais, idsIniciais, sugestoes, onSalvar, onFechar, onClose }: Props) {
   const { materials } = useStore()
+  const { usuario } = useAuth()
   const [s, setS] = useState<SessaoInventario>(() => {
     if (sessao) return sessao
-    const base = nova()
+    const base = nova(locais[0] ?? '', usuario?.nome ?? '')
     return { ...base, itens: idsIniciais.map((id) => materials.find((m) => m.id === id)).filter((m): m is Material => !!m).map(novoItem) }
   })
   const somenteLeitura = s.status === 'fechada'
@@ -90,7 +94,8 @@ export default function EstoqueInventarioSessao({ sessao, idsIniciais, sugestoes
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Local">
               <Select value={s.local} onChange={(e) => setS((x) => ({ ...x, local: e.target.value }))}>
-                {LOCAIS_CONTAGEM.map((l) => <option key={l}>{l}</option>)}
+                {locais.length === 0 && <option value="">Nenhum local cadastrado</option>}
+                {locais.map((l) => <option key={l}>{l}</option>)}
               </Select>
             </Field>
             <Field label="Quem conta">

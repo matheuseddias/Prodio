@@ -89,7 +89,7 @@ export default function OrdemDetalhe() {
           actions={
             <>
               <Button onClick={() => window.print()}><Printer size={16} /> Imprimir</Button>
-              {aberta && <Button variant="primary" onClick={() => setReceber(true)}><PackageCheck size={16} /> Marcar recebida manualmente</Button>}
+              {aberta && <Button variant="primary" onClick={() => setReceber(true)}><PackageCheck size={16} /> Dar entrada sem nota</Button>}
               {aberta && <Button variant="danger" onClick={() => setCancelar(true)}><Ban size={16} /> Cancelar</Button>}
             </>
           }
@@ -297,6 +297,15 @@ export default function OrdemDetalhe() {
   )
 }
 
+/**
+ * Recebimento sem nota fiscal.
+ *
+ * ATENÇÃO — isto MOVE ESTOQUE. A quantidade informada aqui vira chamada à RPC `receive_manual`
+ * (data/escritasCadastros.ts), que cria o recebimento, posta `stock_moves` do tipo entrada manual e
+ * recalcula saldo e custo médio com o preço da OC. O texto anterior dizia o contrário ("o saldo de
+ * estoque não é alterado por aqui"): quem marcasse a OC confiando nele e depois recebesse a NF-e
+ * dobrava o saldo, num ledger que é append-only.
+ */
 function ReceberModal({ po, onClose, onSave }: { po: PurchaseOrder; onClose: () => void; onSave: (po: PurchaseOrder) => void }) {
   const { material } = useLookups()
   const [qtds, setQtds] = useState<Record<string, string>>(() => Object.fromEntries(po.itens.map((it) => [it.id, String(Math.max(0, it.qtd - it.qtdRecebida))])))
@@ -318,7 +327,7 @@ function ReceberModal({ po, onClose, onSave }: { po: PurchaseOrder; onClose: () 
     <Modal
       open
       onClose={onClose}
-      title="Marcar recebida manualmente"
+      title="Dar entrada sem nota"
       size="md"
       footer={
         <>
@@ -328,7 +337,14 @@ function ReceberModal({ po, onClose, onSave }: { po: PurchaseOrder; onClose: () 
         </>
       }
     >
-      <p className="text-sm text-muted mb-4">Informe a quantidade recebida agora, em unidade de compra. Use quando a nota não vier pelo sistema; o saldo de estoque não é alterado por aqui.</p>
+      <div className="mb-4 rounded-lg border border-warn/40 bg-warn-soft/40 p-3 text-sm">
+        <div className="font-medium">Isto dá entrada no estoque.</div>
+        <p className="mt-0.5 text-muted">
+          A quantidade informada, em unidade de compra, entra no saldo com o preço desta OC e recalcula o custo médio. Use quando a mercadoria chegou e a nota não vem pelo sistema.{' '}
+          <strong>Se a NF-e desta compra chegar depois, receba a nota pelo Recebimento e não lance aqui de novo</strong> — o mesmo insumo entraria duas vezes, e o movimento de estoque não tem
+          como ser apagado.
+        </p>
+      </div>
       <div className="space-y-3">
         {po.itens.map((it) => {
           const m = material(it.materialId)

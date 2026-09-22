@@ -1,17 +1,39 @@
-import { Check, Copy, FileUp, Mail, Plug, ScanSearch } from 'lucide-react'
+import { Check, Copy, FileUp, Loader2, Mail, Plug, ScanSearch } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useAuth } from '../../app/auth'
+import { mensagemErro } from '../../data/erros'
+import { enviarXmlNfe, resumoXmlEnviado } from '../../data/nfeXml'
 import { useStore } from '../../domain/store'
-import { Badge, Button, Card } from '../../ui'
+import { Badge, Button, Card, cx } from '../../ui'
 import { emailXml } from './nfeUtils'
 
 /** Cartão "Como as notas chegam": as três origens oficiais de NF-e no Prodio. */
 export function ComoChegam() {
-  const { tenant, connectors } = useStore()
+  const { tenant, connectors, modo, recarregar } = useStore()
+  const { tenantId } = useAuth()
   const email = emailXml(tenant.nome)
   const [copiado, setCopiado] = useState(false)
-  const [upload, setUpload] = useState<string | null>(null)
+  const [upload, setUpload] = useState<{ nome: string; estado: 'enviando' | 'ok' | 'erro'; detalhe?: string } | null>(null)
   const erpNfe = connectors.filter((c) => c.status === 'conectado' && c.capacidades.nfeCompra)
+
+  // O arquivo vai para POST /nfe/xml no worker, que roda o parser do core e grava a nota. Depois a
+  // lista de notas é recarregada do banco — a tela não cria nem adivinha item nenhum.
+  const enviar = async (arquivo: File | undefined) => {
+    if (!arquivo) return
+    if (modo === 'memoria') {
+      setUpload({ nome: arquivo.name, estado: 'erro', detalhe: 'Sem banco configurado, o XML não é enviado a lugar nenhum. Este modo é só demonstração.' })
+      return
+    }
+    setUpload({ nome: arquivo.name, estado: 'enviando' })
+    try {
+      const r = await enviarXmlNfe(arquivo, tenantId)
+      await recarregar()
+      setUpload({ nome: arquivo.name, estado: 'ok', detalhe: resumoXmlEnviado(r) })
+    } catch (e) {
+      setUpload({ nome: arquivo.name, estado: 'erro', detalhe: mensagemErro(e) })
+    }
+  }
 
   const copiar = async () => {
     try {
@@ -42,14 +64,26 @@ export function ComoChegam() {
                 {copiado ? <Check size={14} /> : <Copy size={14} />}
                 {copiado ? 'Copiado' : 'Copiar'}
               </Button>
-              <label className="inline-flex h-8 cursor-pointer items-center gap-2 rounded-lg border border-border bg-surface px-3 text-[13px] font-medium hover:bg-surface-2">
-                <FileUp size={14} /> Enviar XML
-                <input type="file" accept=".xml,text/xml" className="hidden" onChange={(e) => setUpload(e.target.files?.[0]?.name ?? null)} />
+              <label
+                className={cx(
+                  'inline-flex h-8 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-[13px] font-medium',
+                  upload?.estado === 'enviando' ? 'opacity-60' : 'cursor-pointer hover:bg-surface-2',
+                )}
+              >
+                {upload?.estado === 'enviando' ? <Loader2 size={14} className="animate-spin" /> : <FileUp size={14} />}
+                {upload?.estado === 'enviando' ? 'Enviando…' : 'Enviar XML'}
+                <input type="file" accept=".xml,text/xml" className="hidden" disabled={upload?.estado === 'enviando'} onChange={(e) => void enviar(e.target.files?.[0])} />
               </label>
             </div>
             {upload && (
               <div className="mt-2 text-[12px] text-muted">
-                <span className="font-mono">{upload}</span> · <span className="text-warn">parser no servidor: em breve</span>
+                <span className="font-mono">{upload.nome}</span>
+                {upload.detalhe && (
+                  <>
+                    {' · '}
+                    <span className={upload.estado === 'erro' ? 'text-danger' : 'text-ok'}>{upload.detalhe}</span>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -71,12 +105,14 @@ export function ComoChegam() {
             <ScanSearch size={16} />
           </span>
           <div className="min-w-0 flex-1">
-            <div className="font-medium">Consulta por chave na hora do bipe</div>
+            <div className="font-medium">
+              Consulta por chave na hora do bipe <Badge tone="neutral">ainda não disponível</Badge>
+            </div>
             <div className="text-muted">
-              Quando a chave bipada no recebimento não está no Prodio, o provedor de NF-e busca o XML na SEFAZ na hora: Focus NFe (certificado A1 da empresa) ou NFE.io (consulta paga por
-              chave, sem certificado).{' '}
+              Buscaria o XML na SEFAZ quando a chave bipada não estivesse no Prodio, por um provedor (Focus NFe com certificado A1, ou NFE.io por consulta paga). Enquanto não existir, a chave
+              desconhecida no chão de fábrica oferece o recebimento às cegas contra a OC.{' '}
               <Link to="/conectores" className="font-medium text-accent-text hover:underline">
-                Configurar em Conectores
+                Ver em Conectores
               </Link>
             </div>
           </div>

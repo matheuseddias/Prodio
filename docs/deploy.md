@@ -50,7 +50,23 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/dist/dados_eddias.sql
 
 Se o usuário do passo 1 não existir, o arquivo interrompe com uma mensagem dizendo isso. Ao final você tem a empresa Eddias, 11 produtos, 13 insumos, 5 fornecedores, 4 fichas técnicas, plano do dia, saldos, 6 ordens de compra, 6 notas fiscais e 3 operadores com PIN 1234, 2345 e 3456.
 
+Os cinco conectores (BaseLinker, Bling, Tiny, Omie, Magis5) nascem **desconectados**, sem credencial e sem último sync. É de propósito: credencial é cifrada com a `CREDENTIALS_KEY` do worker e não pode ser semeada, então um conector semeado como conectado seria uma promessa falsa na tela e uma falha a cada 5 minutos no cron. Quem conecta é você, pela tela, depois do passo 8.
+
 Quando for usar dados reais, rode `limpar_exemplo.sql` e importe os seus pelas telas de cadastro.
+
+### Correções pontuais (`supabase/correcoes/`)
+
+São arquivos SQL avulsos para consertar um banco que já recebeu uma versão anterior dos dados. Não são migrations (não mudam schema) e não entram no `build.sh`: você roda à mão, uma vez, e só se o caso for o seu. Todos são seguros de rodar duas vezes.
+
+| Arquivo | Quando rodar |
+|---|---|
+| `20260922_conector_fantasma.sql` | Se você aplicou `dados_eddias.sql` **antes de 22/09/2026**. Aquela versão semeava o BaseLinker como conectado, com último sync, cursor, fila de estoque, saldos de hub e um `inventory_id` inventado — tudo sem credencial. Rode **antes de publicar o worker** (passo 8): é ele que descobre o problema, tentando sincronizar de 5 em 5 minutos um conector que nunca existiu. |
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/correcoes/20260922_conector_fantasma.sql
+```
+
+Ele só mexe em conector **sem credencial salva** — integração que comprovadamente nunca foi conectada. Conector conectado de verdade passa intacto. Não apaga pedidos, produtos, insumos, estoque, ordens de compra nem notas. Ao final imprime a lista de conectores: todos têm que aparecer como `desconectado` enquanto `tem_credencial` for `f`. Rodar de novo devolve zero alterações.
 
 ## 4. Ligar o gatilho de token
 
@@ -84,16 +100,64 @@ Entre com o e-mail e a senha do passo 1.
 
 ## 8. Subir o worker (quando for conectar hub ou receber XML)
 
+Antes de publicar: se o banco recebeu os dados de exemplo antes de 22/09/2026, rode
+`supabase/correcoes/20260922_conector_fantasma.sql` (seção 3). Sem isso o cron acorda com um conector
+marcado como conectado e sem credencial, e passa a falhar de 5 em 5 minutos.
+
+Publique primeiro e grave os segredos depois: dois deles (`PUBLIC_URL` e `CORS_ORIGENS`) precisam do
+endereço que só existe depois do primeiro `wrangler deploy`. Segredo passa a valer na requisição
+seguinte, sem publicar de novo.
+
 ```bash
 cd apps/worker
-wrangler secret put SUPABASE_URL
-wrangler secret put SUPABASE_SERVICE_KEY
-wrangler secret put SUPABASE_ANON_KEY
-wrangler secret put CREDENTIALS_KEY   # openssl rand -hex 32
-wrangler deploy
+wrangler login
+wrangler deploy          # anote o https://prodio-worker.<conta>.workers.dev que ele imprime
 ```
 
-Depois preencha `VITE_WORKER_URL` no `.env` da interface. O detalhe de cada rota e do e-mail de entrada está em `apps/worker/README.md`.
+```bash
+# obrigatórios sempre
+wrangler secret put SUPABASE_URL          # https://xxxx.supabase.co
+wrangler secret put SUPABASE_SERVICE_KEY  # Supabase > Settings > API > service_role
+wrangler secret put SUPABASE_ANON_KEY     # a anon/public key do mesmo lugar
+wrangler secret put CREDENTIALS_KEY       # openssl rand -hex 32 — guarde: girar esta chave
+                                          # invalida toda credencial de conector já cifrada
+wrangler secret put CORS_ORIGENS          # origens da interface, separadas por vírgula:
+# https://app.prodio.com.br,https://prodio-web.pages.dev,https://*.prodio-web.pages.dev,http://localhost:5173
+
+# obrigatório para conectar Bling ou Tiny (OAuth). O BaseLinker é token colado e não precisa.
+wrangler secret put PUBLIC_URL            # o endereço do worker, sem barra no fim
+
+# opcionais: app OAuth global. No Tiny o app é privado por seller, então o normal é o
+# cliente colar client_id/client_secret na própria tela de Conectores e pular estes dois.
+wrangler secret put BLING_CLIENT_ID
+wrangler secret put BLING_CLIENT_SECRET
+wrangler secret put TINY_CLIENT_ID
+wrangler secret put TINY_CLIENT_SECRET
+
+wrangler secret list                      # confere os nomes gravados (nunca mostra valores)
+```
+
+Sem `CORS_ORIGENS` a interface publicada falha com erro de CORS em tudo que fala com o worker (só
+`localhost` passa). Sem `PUBLIC_URL`, `/oauth/start` responde 500 e o botão "Conectar o Tiny" não sai
+do lugar. A lista completa, com o que cada variável faz, está em `apps/worker/README.md`.
+
+Depois preencha `VITE_WORKER_URL` com esse mesmo endereço: no `.env` da interface para o build local, e **no painel** do Cloudflare Pages (Settings > Variables and Secrets, em Production **e** em Preview) para o site publicado — variável `VITE_*` é lida no build, então o site só enxerga o worker depois de uma publicação nova (`docs/deploy-web.md`, passo 3). O detalhe de cada rota e do e-mail de entrada está em `apps/worker/README.md`.
+
+Confira que o worker respondeu e que ele aceita a origem da interface:
+
+```bash
+curl -s https://prodio-worker.<conta>.workers.dev/health
+# {"ok":true,"servico":"prodio-worker"}
+
+curl -s -o /dev/null -D - -X OPTIONS \
+  -H 'Origin: https://prodio-web.pages.dev' -H 'Access-Control-Request-Method: POST' \
+  https://prodio-worker.<conta>.workers.dev/connectors/x/test | grep -i '^access-control'
+# esperado: access-control-allow-origin: https://prodio-web.pages.dev  (e não "*", e não vazio)
+```
+
+Com o worker no ar, conecte as plataformas em Configurações > Conectores. Só nesse momento o conector sai de `desconectado`: é o worker que cifra a credencial e grava o status. Antes de ligar o envio de estoque do BaseLinker, informe o depósito (`warehouse_id`) — sem ele o envio é recusado com erro, de propósito, para o Prodio não escrever saldo no inventário errado.
+
+**De-Para de status (pendência).** A RPC `set_status_map` existe e funciona, mas nenhuma tela chama. Enquanto isso, todo pedido importado entra como `demanda` — nada vira `carteira`, `enviado` nem `cancelado`, então cancelado conta como demanda e a projeção fica alta. Não cadastre o mapa "na mão" com nomes em inglês: BaseLinker, Tiny e Bling devolvem o status como código numérico da conta, e um mapa que não casa faz o pedido entrar com significado nulo e sumir da demanda em silêncio — pior que não ter mapa.
 
 ## Conferir se ficou de pé
 

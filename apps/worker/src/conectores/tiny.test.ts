@@ -361,3 +361,21 @@ describe('Tiny · mapa', () => {
     expect(saldoDoEstoqueTiny({ saldo: '1.234,5' })).toBe(1234.5)
   })
 })
+
+describe('Tiny · testarConexao', () => {
+  it('lê uma página de um produto e relata o total do catálogo', async () => {
+    const { chamadas, fetchFn } = fetchFalso(() => json({ itens: [{ id: 1, sku: 'CAM-01' }], paginacao: { total: 137 } }))
+    const { c } = montar(fetchFn, VALIDO)
+    expect(await c.testarConexao()).toBe('conectado ao Tiny: 137 produto(s) no catálogo da conta')
+    expect(chamadas).toHaveLength(1)
+    expect(chamadas[0].method).toBe('GET')
+    expect(chamadas[0].url.pathname).toBe(P(MAPA_TINY.rotas.produtos))
+    expect(chamadas[0].url.searchParams.get('limit')).toBe('1')
+  })
+
+  it('token vencido sem refresh sai com código reauth, que a rota traduz', async () => {
+    const { fetchFn } = fetchFalso(() => json({ itens: [] }))
+    const { c } = montar(fetchFn, { access_token: 'velho', expires_at: AGORA - 1 })
+    await expect(c.testarConexao()).rejects.toMatchObject({ name: 'ErroConector', codigo: 'reauth' })
+  })
+})

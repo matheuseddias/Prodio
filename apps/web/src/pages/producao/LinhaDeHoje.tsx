@@ -1,7 +1,6 @@
 import { AlertTriangle, ArrowUpToLine, Calculator, Plus, Printer, Tag } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { locations } from '../../domain/mock'
 import { num, pct } from '../../domain/format'
 import { explodeBom, useLookups, useStore } from '../../domain/store'
 import { Badge, Button, Card, EmptyState, Field, Modal, Progress, Select, Table, Td, Th, cx } from '../../ui'
@@ -40,7 +39,6 @@ export default function LinhaDeHoje() {
   const s = useStore()
   const { productRef, material } = useLookups()
   const nav = useNavigate()
-  const [local, setLocal] = useState(locations[0]?.id ?? '')
   const [modal, setModal] = useState(false)
   const [rascunho, setRascunho] = useState<Record<string, number>>({})
   const [elevadas, setElevadas] = useState<Set<string>>(new Set())
@@ -118,13 +116,10 @@ export default function LinhaDeHoje() {
           <p className="text-sm text-muted mt-1 capitalize">{new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Select value={local} onChange={(e) => setLocal(e.target.value)} className="w-auto" aria-label="Local">
-            {locations.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.nome}
-              </option>
-            ))}
-          </Select>
+          {/* O Select de Local saiu: as opções vinham de mock.locations e o valor escolhido não era
+              lido por nada — trocar de local não mudava um número. O plano do dia já soma os locais
+              (data/leituras.ts, lerDailyPlan); filtrar por local é trabalho para quando a tela
+              souber o que fazer com ele. */}
           <Button onClick={abrirModal}>
             <Calculator size={16} /> Definir projeção de hoje
           </Button>

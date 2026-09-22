@@ -5,6 +5,7 @@ import type { ConectorRow, Db, PedidoParaRpc } from '../db'
 import { montarConector } from '../conectores'
 import type { Conector, PedidoNormalizado } from '../conectores/tipos'
 import { log, mensagemErro } from '../log'
+import { desativarSeSemCredenciais } from './semCredenciais'
 
 export interface ResumoSync {
   conectores: number
@@ -55,6 +56,8 @@ export async function syncPedidos(env: Env, db: Db, montar: MontarConector = (ro
       resumo.ok++
     } catch (e) {
       resumo.falhas++
+      // Sem credencial nenhuma: desativa e não grava erro de sync (senão repetiria a cada 5 min).
+      if (await desativarSeSemCredenciais(row, db, e)) continue
       const erro = mensagemErro(e)
       log('error', 'sync.falha', { connector: row.id, tenant: row.tenant_id, plataforma: row.plataforma, erro })
       try {

@@ -86,6 +86,9 @@ export default function Bipe() {
     timer.current = window.setTimeout(() => setPainel(null), 2000)
   }
 
+  // "Simular" é da demonstração sem banco: ler() chama registerScan de verdade, que no modo
+  // Supabase vira apontamento, stock_move e item no outbox — produção falsa num ledger append-only,
+  // com uma etiqueta sorteada. Por isso os dois botões só existem no modo memória (ver o JSX).
   const simular = () => {
     const bipados = new Set(store.scans.filter((s) => s.tipo === 'produzido').map((s) => s.serial))
     const livres = store.labels.filter((l) => l.status === 'impressa' && !bipados.has(l.serial))
@@ -164,14 +167,16 @@ export default function Bipe() {
       {/* Leitor */}
       <section className="mt-4">
         <Scanner formats={FORMATOS} onRead={ler} placeholder="Serial da etiqueta…" hint="Leitor Bluetooth: aponte e dispare, o Enter confirma." />
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <button type="button" onClick={simular} className="flex h-14 items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 text-[15px] font-medium text-slate-200 active:bg-slate-800">
-            <Shuffle size={18} /> Simular bipe
-          </button>
-          <button type="button" onClick={simularRepetido} className="flex h-14 items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 text-[15px] font-medium text-slate-200 active:bg-slate-800">
-            <Repeat size={18} /> Simular repetido
-          </button>
-        </div>
+        {modo === 'memoria' && (
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button type="button" onClick={simular} className="flex h-14 items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 text-[15px] font-medium text-slate-200 active:bg-slate-800">
+              <Shuffle size={18} /> Simular bipe
+            </button>
+            <button type="button" onClick={simularRepetido} className="flex h-14 items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 text-[15px] font-medium text-slate-200 active:bg-slate-800">
+              <Repeat size={18} /> Simular repetido
+            </button>
+          </div>
+        )}
       </section>
 
       {/* Últimos bipes */}

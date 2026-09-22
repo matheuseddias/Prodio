@@ -148,3 +148,31 @@ describe('BaseLinker · 429 e backoff', () => {
     expect(sleep).toHaveBeenCalledTimes(3)
   })
 })
+
+describe('BaseLinker · testarConexao', () => {
+  const inventarios = { inventories: [{ inventory_id: 41, name: 'Loja', is_default: false }, { inventory_id: 42, name: 'Casa', is_default: true }] }
+
+  it('credencial boa: uma chamada só, somente leitura, e devolve o inventário configurado', async () => {
+    const { chamadas, fetchFn } = fetchFalso(() => ok(inventarios))
+    const detalhe = await montar(fetchFn, { inventory_id: 41 }).testarConexao()
+    expect(chamadas.map((c) => c.method)).toEqual(['getInventories'])
+    expect(detalhe).toBe('conectado ao BaseLinker: inventário "Loja" (id 41)')
+  })
+
+  it('sem inventory_id no config, mostra o padrão e não vaza o token', async () => {
+    const { fetchFn } = fetchFalso(() => ok(inventarios))
+    const detalhe = await montar(fetchFn).testarConexao()
+    expect(detalhe).toContain('"Casa" (id 42)')
+    expect(detalhe).not.toContain('tok')
+  })
+
+  it('inventário configurado que não existe na conta é apontado', async () => {
+    const { fetchFn } = fetchFalso(() => ok(inventarios))
+    expect(await montar(fetchFn, { inventory_id: 99 }).testarConexao()).toContain('não existe o inventário 99')
+  })
+
+  it('credencial ruim: erro do BaseLinker com o error_code, para a rota traduzir', async () => {
+    const { fetchFn } = fetchFalso(() => new Response(JSON.stringify({ status: 'ERROR', error_code: 'ERROR_AUTH_TOKEN', error_message: 'Invalid token' }), { status: 200 }))
+    await expect(montar(fetchFn).testarConexao()).rejects.toMatchObject({ name: 'ErroConector', codigo: 'ERROR_AUTH_TOKEN' })
+  })
+})

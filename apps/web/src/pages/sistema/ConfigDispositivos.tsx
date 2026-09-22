@@ -1,29 +1,44 @@
-import { QrCode, Smartphone, WifiOff } from 'lucide-react'
+import { Loader2, QrCode, Smartphone, WifiOff } from 'lucide-react'
 import { useState } from 'react'
-import * as mock from '../../domain/mock'
+import { useAuth } from '../../app/auth'
+import { criarDispositivo, VALIDADE_PAREAMENTO_MIN } from '../../data/dispositivos'
+import { mensagemErro } from '../../data/erros'
 import { useStore } from '../../domain/store'
 import { dataBR, relativo } from '../../domain/format'
 import type { Device } from '../../domain/types'
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, Select, Table, Td, Th } from '../../ui'
-import { uid } from './ConfigConst'
 import ConfigOperadores from './ConfigOperadores'
 
 export default function ConfigDispositivos() {
-  const { devices, upsertDevice, removeDevice } = useStore()
+  const { devices, locations, removeDevice, recarregar } = useStore()
+  const { tenantId } = useAuth()
   const [registrar, setRegistrar] = useState(false)
-  const [codigo, setCodigo] = useState('')
-  const [novo, setNovo] = useState<{ nome: string; localId: string }>({ nome: '', localId: 'l1' })
+  // O código só existe depois que o aparelho é criado no banco: antes disso o campo é nulo.
+  const [codigo, setCodigo] = useState<string | null>(null)
+  const [criando, setCriando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const [novo, setNovo] = useState<{ nome: string; localId: string }>({ nome: '', localId: '' })
   const [revogando, setRevogando] = useState<Device | null>(null)
-  const local = (id: string) => mock.locations.find((l) => l.id === id)?.nome ?? id
+  const local = (id: string) => locations.find((l) => l.id === id)?.nome ?? (id ? id : 'Todos')
 
   const abrirRegistro = () => {
-    setCodigo(String(Math.floor(1000 + Math.random() * 9000)))
-    setNovo({ nome: '', localId: 'l1' })
+    setCodigo(null)
+    setErro(null)
+    setNovo({ nome: '', localId: '' })
     setRegistrar(true)
   }
-  const concluirRegistro = () => {
-    upsertDevice({ id: uid(), nome: novo.nome || `Aparelho ${codigo}`, localId: novo.localId, registradoEm: new Date().toISOString(), pendentesOffline: 0 })
-    setRegistrar(false)
+  const gerarCodigo = async () => {
+    setCriando(true)
+    setErro(null)
+    try {
+      const r = await criarDispositivo(tenantId, novo.nome.trim() || 'Aparelho do chão de fábrica', novo.localId || undefined)
+      setCodigo(r.pairCode)
+      await recarregar()
+    } catch (e) {
+      setErro(mensagemErro(e))
+    } finally {
+      setCriando(false)
+    }
   }
 
   return (
@@ -86,34 +101,49 @@ export default function ConfigDispositivos() {
         title="Registrar dispositivo"
         size="sm"
         footer={
-          <>
-            <Button onClick={() => setRegistrar(false)}>Cancelar</Button>
-            <Button variant="primary" onClick={concluirRegistro}>
-              Concluir pareamento
+          codigo ? (
+            <Button variant="primary" onClick={() => setRegistrar(false)}>
+              Concluir
             </Button>
-          </>
+          ) : (
+            <>
+              <Button onClick={() => setRegistrar(false)}>Cancelar</Button>
+              <Button variant="primary" disabled={criando} onClick={() => void gerarCodigo()}>
+                {criando ? <Loader2 size={15} className="animate-spin" /> : null}
+                {criando ? 'Gerando…' : 'Gerar código de pareamento'}
+              </Button>
+            </>
+          )
         }
       >
         <div className="space-y-4">
-          <div className="rounded-xl border border-dashed border-border bg-surface-2 p-5 text-center">
-            <QrCode size={40} className="mx-auto text-faint" />
-            <div className="mt-3 font-mono text-2xl font-semibold tracking-wider">PRODIO-PAIR-{codigo}</div>
-            <p className="mt-2 text-[13px] text-muted">
-              Abra <span className="font-mono">/chao</span> neste aparelho e leia o código. Ele expira em 10 minutos.
-            </p>
-          </div>
-          <Field label="Nome do aparelho">
-            <Input value={novo.nome} onChange={(e) => setNovo({ ...novo, nome: e.target.value })} placeholder="Ex.: Celular linha 3" />
-          </Field>
-          <Field label="Local">
-            <Select value={novo.localId} onChange={(e) => setNovo({ ...novo, localId: e.target.value })}>
-              {mock.locations.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.nome}
-                </option>
-              ))}
-            </Select>
-          </Field>
+          {codigo ? (
+            <div className="rounded-xl border border-dashed border-border bg-surface-2 p-5 text-center">
+              <QrCode size={40} className="mx-auto text-faint" />
+              <div className="mt-3 font-mono text-3xl font-semibold tracking-[0.2em]">{codigo}</div>
+              <p className="mt-2 text-[13px] text-muted">
+                Abra <span className="font-mono">/chao</span> neste aparelho e digite o código. Ele expira em {VALIDADE_PAREAMENTO_MIN} minutos e só pode ser usado uma vez.
+              </p>
+            </div>
+          ) : (
+            <>
+              <p className="text-[13px] text-muted">O código de pareamento é gerado pelo banco na hora em que o aparelho é criado. Dê um nome ao aparelho e escolha o local.</p>
+              <Field label="Nome do aparelho">
+                <Input value={novo.nome} onChange={(e) => setNovo({ ...novo, nome: e.target.value })} placeholder="Ex.: Celular linha 3" autoFocus />
+              </Field>
+              <Field label="Local" hint={locations.length === 0 ? 'Nenhum local cadastrado nesta empresa.' : 'O aparelho aponta produção neste local.'}>
+                <Select value={novo.localId} onChange={(e) => setNovo({ ...novo, localId: e.target.value })}>
+                  <option value="">Sem local definido</option>
+                  {locations.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.nome}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </>
+          )}
+          {erro && <p className="text-[13px] text-danger">{erro}</p>}
         </div>
       </Modal>
 

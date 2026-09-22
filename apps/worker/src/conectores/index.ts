@@ -13,9 +13,19 @@ export interface ConfigComum {
   intervalo_min?: number
 }
 
+// Código do erro de conector ativo sem nenhuma credencial gravada. É o único caso que NÃO se
+// resolve sozinho com o tempo (token expirado renova, rede volta), só com o dono colando a
+// credencial. Os jobs usam este código para desativar o conector em vez de repetir a falha a cada
+// 5 minutos — ver jobs/semCredenciais.ts.
+export const SEM_CREDENCIAIS = 'sem_credenciais'
+
 export function criarConector(row: ConectorRow, credenciais: Credenciais | null, env: Env, db: Pick<Db, 'getCredentials' | 'setCredentials'>): Conector {
   const config = (row.config ?? {}) as ConfigComum & ConfigBaseLinker & ConfigBling & ConfigTiny
-  if (!credenciais) throw new ErroConector(row.plataforma, 'conector sem credenciais')
+  // Nenhuma credencial (o seed cria o conector sem, porque credencial é cifrada e não se semeia)
+  // e credencial vazia caem no mesmo caso: não há o que tentar.
+  if (!credenciais || Object.keys(credenciais).length === 0) {
+    throw new ErroConector(row.plataforma, 'conector sem credenciais', { codigo: SEM_CREDENCIAIS })
+  }
   switch (row.plataforma) {
     case 'baselinker':
       return new ConectorBaseLinker({ connectorId: row.id, credenciais: credenciais as unknown as CredenciaisBaseLinker, config })

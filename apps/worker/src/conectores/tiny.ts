@@ -353,6 +353,18 @@ export class ConectorTiny implements Conector, ClienteTiny {
     return resultados
   }
 
+  // Teste de conexão: uma página de um produto só. Renova o token se precisar (é o caminho normal
+  // de qualquer chamada), prova a autorização e não escreve nada na conta do cliente.
+  async testarConexao(): Promise<string> {
+    const r = await this.chamar<RespostaLista<ProdutoTiny>>('GET', MAPA_TINY.rotas.produtos, {
+      query: { [MAPA_TINY.query.limite]: '1', [MAPA_TINY.query.deslocamento]: '0' },
+    })
+    const total = Number(r.paginacao?.total)
+    if (Number.isFinite(total) && total >= 0) return `conectado ao Tiny: ${total} produto(s) no catálogo da conta`
+    const amostra = (r.itens ?? []).length
+    return `conectado ao Tiny: o catálogo respondeu${amostra ? ` (amostra de ${amostra} produto)` : ''}`
+  }
+
   // A v3 não filtra nota por chave: a varredura da janela está em ./tinyNfe.
   async findInboundNfe(chave: string): Promise<NfeEncontrada | null> {
     return buscarNfeTiny(this, chave, { agora: this.agora(), fuso: this.fuso, dias: this.config.dias_nfe ?? DIAS_NFE_PADRAO })

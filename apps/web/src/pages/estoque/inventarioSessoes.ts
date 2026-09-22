@@ -5,7 +5,17 @@ import type { Material } from '../../domain/types'
 export const MOTIVOS_DIVERGENCIA = ['Quebra', 'Perda de corte', 'Erro de lançamento', 'Sobra não lançada', 'Outro'] as const
 export type MotivoDivergencia = (typeof MOTIVOS_DIVERGENCIA)[number]
 
+/**
+ * Locais de contagem da demonstração (modo memória). Fora dela são os locais da empresa: mostrar
+ * "Galpão Vila Galvão" para o operador de outra fábrica é dado de outra empresa na tela dele.
+ */
 export const LOCAIS_CONTAGEM = ['Galpão Vila Galvão · Prateleira A', 'Galpão Vila Galvão · Tecidos', 'Galpão Vila Galvão · Embalagens', 'Galpão Pedro de Souza']
+
+/** Opções de local para uma sessão: os locais da empresa; só a demonstração usa a lista fixa. */
+export function locaisDeContagem(locais: { nome: string }[], modo: 'memoria' | 'supabase'): string[] {
+  if (modo === 'memoria') return LOCAIS_CONTAGEM
+  return locais.map((l) => l.nome)
+}
 
 /** Uma linha do modo "por peças": peças inteiras de um tamanho × área/comprimento de cada. */
 export interface PecaContada {
@@ -212,6 +222,10 @@ export function semanasAcimaDe95(serie: { em: string; pct: number }[], max = 4) 
 }
 
 // ---------- sessões de exemplo ----------
+//
+// SÓ para o modo memória (demonstração sem banco). Com banco de verdade as telas começam vazias:
+// semear com estas sessões mostrava contagens de outra empresa ("Thiago", "Encarregada") como se
+// fossem do galpão do cliente, e a Acurácia era calculada em cima delas.
 
 const diasAtras = (n: number, h = 7, min = 0) => {
   const d = new Date()

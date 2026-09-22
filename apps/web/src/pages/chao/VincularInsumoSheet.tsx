@@ -8,12 +8,23 @@ import { Chip } from './ReceberNfeItem'
 import type { ItemConf } from './ReceberNfeTipos'
 import Sheet from './Sheet'
 
+interface Props {
+  item: ItemConf
+  fornecedor: string
+  /** Vínculo já gravado para este código neste fornecedor (supplier_materials), quando houver. */
+  sugestao?: { materialId: string; fator?: number }
+  /** A nota tem fornecedor cadastrado? Sem ele não há onde guardar o vínculo. */
+  guarda: boolean
+  onClose: () => void
+  onPick: (materialId: string, fator: number) => void
+}
+
 /** Folha para escolher o insumo (De-Para) e o fator de conversão de um item da nota. */
-export default function VincularInsumoSheet({ item, fornecedor, onClose, onPick }: { item: ItemConf; fornecedor: string; onClose: () => void; onPick: (materialId: string, fator: number) => void }) {
+export default function VincularInsumoSheet({ item, fornecedor, sugestao, guarda, onClose, onPick }: Props) {
   const store = useStore()
   const [busca, setBusca] = useState('')
-  const [sel, setSel] = useState<string | null>(item.materialId ?? null)
-  const [fator, setFator] = useState<string>(item.fator ? String(item.fator) : '')
+  const [sel, setSel] = useState<string | null>(item.materialId ?? sugestao?.materialId ?? null)
+  const [fator, setFator] = useState<string>(String(item.fator ?? sugestao?.fator ?? ''))
 
   const lista = useMemo(() => {
     const q = norm(busca.trim())
@@ -88,7 +99,7 @@ export default function VincularInsumoSheet({ item, fornecedor, onClose, onPick 
         </div>
       )}
       <div className="mt-3 rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-[13px] text-sky-200">
-        O vínculo fica salvo para as próximas notas de {fornecedor}.
+        {guarda ? `O vínculo fica salvo para as próximas notas de ${fornecedor}.` : 'Esta nota não está ligada a um fornecedor cadastrado: o vínculo vale só para ela.'}
       </div>
       <button
         type="button"

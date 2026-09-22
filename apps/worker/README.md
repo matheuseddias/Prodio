@@ -9,10 +9,16 @@ Cloudflare Worker do Prodio. Um runtime só para: conectores de pedidos (BaseLin
 | `SUPABASE_URL` | URL do projeto. |
 | `SUPABASE_SERVICE_KEY` | Service role. **Só** em cron, webhook e e-mail (`src/db.ts`). |
 | `SUPABASE_ANON_KEY` | Só para montar um cliente que age como o usuário (anon key + JWT dele) em `/nfe/xml` e `/connectors/*`. RLS e `assert_member` valem. |
-| `CREDENTIALS_KEY` | Chave simétrica de `pgp_sym_encrypt` das credenciais de conectores (`worker_get/set_credentials`). Também assina o `state` do OAuth. |
+| `CREDENTIALS_KEY` | Chave simétrica de `pgp_sym_encrypt` das credenciais de conectores (`worker_get/set_credentials`). O `state` do OAuth é assinado com uma chave **derivada** dela (`HMAC(CREDENTIALS_KEY, 'prodio.oauth.state.v1')`), não com ela própria. |
 | `BLING_CLIENT_ID` / `BLING_CLIENT_SECRET` | App OAuth do Bling (global). Um tenant pode usar app próprio gravando `client_id`/`client_secret` nas credenciais do conector. |
 | `TINY_CLIENT_ID` / `TINY_CLIENT_SECRET` | Fallback do app OAuth do Tiny. No Tiny o app é **privado por seller**: o normal é o cliente criar o aplicativo na conta dele e colar `client_id`/`client_secret` nas credenciais do conector; estes segredos globais só entram quando nada foi colado. |
-| `PUBLIC_URL` | URL pública do worker. **Obrigatória para o OAuth do Tiny**: o `redirect_uri` é montado como `<PUBLIC_URL>/connectors/tiny/oauth/callback`. |
+| `PUBLIC_URL` | URL pública do worker. **Obrigatória para o OAuth do Bling e do Tiny**: dela saem o `redirect_uri` (`<PUBLIC_URL>/connectors/<plataforma>/oauth/callback`) e a URL de `/oauth/go` que a tela abre. Sem ela, `/oauth/start` responde 500 com o texto que diz o que falta. |
+| `CORS_ORIGENS` | Origens que o navegador pode usar para chamar as rotas de usuário, separadas por vírgula. Sem ela, só `http://localhost:5173` e `http://localhost:4173` passam — ou seja, a interface publicada não fala com o worker. Ver "CORS" abaixo. |
+
+Obrigatórias sempre: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_ANON_KEY`, `CREDENTIALS_KEY`,
+`CORS_ORIGENS`. Obrigatória para conectar Bling ou Tiny: `PUBLIC_URL`. As quatro de app OAuth são
+opcionais (ver a tabela acima). **Só o BaseLinker funciona sem `PUBLIC_URL`**, porque é token colado,
+não OAuth.
 
 ```sh
 cd apps/worker
@@ -20,13 +26,57 @@ wrangler secret put SUPABASE_URL
 wrangler secret put SUPABASE_SERVICE_KEY
 wrangler secret put SUPABASE_ANON_KEY
 wrangler secret put CREDENTIALS_KEY          # ex.: openssl rand -hex 32
-wrangler secret put BLING_CLIENT_ID
+wrangler secret put CORS_ORIGENS             # ver "CORS" abaixo
+wrangler secret put PUBLIC_URL               # o endereço deste worker; ver a nota abaixo
+wrangler secret put BLING_CLIENT_ID          # opcional: app global do Bling
 wrangler secret put BLING_CLIENT_SECRET
 wrangler secret put TINY_CLIENT_ID           # opcional: app global do Tiny
 wrangler secret put TINY_CLIENT_SECRET
 ```
 
+`PUBLIC_URL` e `CORS_ORIGENS` têm um ovo-e-galinha na primeira publicação: o endereço do worker só
+existe depois do primeiro `wrangler deploy`, e é ele que vai em `PUBLIC_URL`. Então a ordem é
+**deploy primeiro, segredo depois** — `wrangler deploy`, anote o `https://prodio-worker.<conta>.workers.dev`
+que o comando imprime, e só então rode os dois `secret put`. Segredo passa a valer na requisição
+seguinte, **sem** precisar publicar de novo. `wrangler secret list` confere o que já foi gravado (mostra
+os nomes, nunca os valores).
+
 Para `wrangler dev`, crie `.dev.vars` com as mesmas chaves (não versionar).
+
+## CORS
+
+As rotas que o navegador chama levam `Authorization: Bearer <JWT do usuário>`. Por isso o worker
+**nunca** responde `Access-Control-Allow-Origin: *` nelas: devolve a origem exata que chamou e só
+quando ela está na lista de `CORS_ORIGENS`. Com `*` e credencial de portador, qualquer site aberto
+na mesma máquina poderia chamar o worker com o token de quem está logado no Prodio.
+
+Valor para o Prodio hoje (uma linha, separada por vírgula):
+
+```
+https://app.prodio.com.br,https://prodio-web.pages.dev,https://*.prodio-web.pages.dev,http://localhost:5173
+```
+
+- Cada item é uma **origem exata** (`https://app.prodio.com.br`) ou um **curinga de subdomínio**
+  (`https://*.prodio-web.pages.dev`). O curinga existe porque cada publicação do Cloudflare Pages
+  ganha um endereço novo com hash (`https://40c39f1e.prodio-web.pages.dev`).
+- O curinga casa **rótulo inteiro de host**, com protocolo e porta iguais: aceita
+  `https://abc.prodio-web.pages.dev` e recusa `https://prodio-web.pages.dev.invasor.com`,
+  `https://maliciosoprodio-web.pages.dev` e `http://abc.prodio-web.pages.dev`.
+- O curinga **tem de ser sobre um host que a empresa controla inteiro**. `https://*.pages.dev`,
+  `https://*.workers.dev`, `https://*.vercel.app` e afins são recusados pelo próprio worker
+  (`cors.curingaAmploDemais` no log): qualquer pessoa cria um site debaixo desses sufixos em
+  minutos, e o curinga ali valeria tanto quanto `*` — com o JWT do usuário junto. `*.prodio.com.br`
+  ou `*.prodio-web.pages.dev` estão certos; o sufixo cru, não.
+- Origem fora da lista **não recebe cabeçalho de CORS nenhum**. O preflight responde 204 sem
+  cabeçalho (e não 403) de propósito: assim o navegador mostra "No 'Access-Control-Allow-Origin'
+  header is present", que aponta o problema, em vez de esconder a causa atrás de um erro de status.
+  Nos dois casos a requisição real não sai do navegador.
+- Não é enviado `Access-Control-Allow-Credentials`: o token vai no header, não em cookie.
+- Webhooks e cron não mandam `Origin` e seguem sem CORS — máquina não precisa. `GET /health` é a
+  única rota aberta (`*`): não tem credencial nem dado de tenant.
+
+Quando `CORS_ORIGENS` está vazia, a origem recusada aparece no log como `cors.origemRecusada` — é o
+primeiro lugar para olhar quando a tela publicada começa a falhar com erro de CORS.
 
 ## Como rodar
 
@@ -44,9 +94,11 @@ pnpm --filter @prodio/worker deploy
 | --- | --- | --- |
 | `GET /health` | nenhuma | `{ok:true}` |
 | `POST /nfe/xml` | `Authorization: Bearer <JWT do usuário>` | Corpo `text/xml` ou multipart (campo `xml`). Roda `parseNfeXml` do core, chama `upsert_nfe_inbound` **como o usuário** e só então guarda o XML em Storage `nfe-xml/<tenant>/<chave>.xml`. Tenant vem da claim `app_metadata.tenant_id`; `?tenant_id=` ou campo `tenant_id` sobrescreve. |
-| `POST /connectors/:id/credentials` | JWT do usuário (admin) | Confere pelo próprio JWT (RLS em `connectors` + `current_member_role() = 'admin'`), depois cifra via `worker_set_credentials`. Campos por plataforma: BaseLinker `token`; Bling `client_id`, `client_secret` (tokens vêm do OAuth). |
-| `POST /connectors/:id/:plataforma/oauth/start` | JWT do usuário (admin) | `:plataforma` é `bling` ou `tiny`. Devolve `{url}` do consentimento com `state` assinado (HMAC com `CREDENTIALS_KEY`, 15 min). No Tiny o `redirect_uri` vai junto. |
-| `GET /connectors/:plataforma/oauth/callback?code&state` | `state` assinado | Troca o code por tokens e grava cifrado. Cadastre esta URL como redirect no app da plataforma. Bling: Basic `client_id:client_secret` + `enable-jwt: 1`. Tiny: Keycloak, credenciais no corpo, com `redirect_uri`. |
+| `POST /connectors/:id/credentials` | JWT do usuário (admin) | Confere pelo próprio JWT (RLS em `connectors` + `current_member_role() = 'admin'`), depois cifra via `worker_set_credentials`. Responde `{ok:true, campos}` com os nomes gravados (nunca os valores). Campos aceitos por plataforma em `CHAVES_PERMITIDAS` (`src/rotas/credenciais.ts`) — o que a **tela** manda está em `apps/web/src/pages/sistema/ConectorCampos.ts`, e o teste `apps/web/src/pages/sistema/contrato.test.ts` prende os dois lados: **BaseLinker** `token` (obrigatório); **Tiny** `client_id` + `client_secret` (o app do Tiny é do próprio cliente); **Bling** nada — o app é do Prodio, o segredo está no env do worker e a tela vai direto para o OAuth (aceitar `client_id`/`client_secret` aqui só serve para um tenant usar app próprio). `access_token`/`refresh_token`/`expires_at` de Bling e Tiny são gravados por esta mesma RPC, mas pelo callback do OAuth, não pela tela. Endereçamento (`inventory_id`, `warehouse_id`, `deposito_id`) é recusado com 400 explicando que ele mora em `connectors.config`. |
+| `POST /connectors/:id/test` | JWT do usuário (admin) | Botão "Testar conexão". Mesma autorização das credenciais. Monta o adaptador com a credencial guardada e faz **uma** chamada barata e somente-leitura (BaseLinker `getInventories`; Tiny e Bling, uma página de um produto). Responde `{ok:true, detalhe}` com algo que prova a conexão (nome e id do inventário, total de produtos) e grava `status = 'conectado'`. Erro da plataforma vira instrução em português (`{ok:false, erro}`, 502) e grava `status = 'erro'` com o mesmo texto. Conector sem credencial devolve 400 e vira `desconectado`. Credencial nunca sai na resposta nem no log. |
+| `POST /connectors/:id/:plataforma/oauth/start` | JWT do usuário (admin) | `:plataforma` é `bling` ou `tiny`. Devolve `{url}` — e essa URL é do **próprio worker** (`/oauth/go`), não da plataforma: é lá que o cookie de vínculo é gravado. O `state` é assinado com uma chave derivada de `CREDENTIALS_KEY` e vale 10 min. |
+| `GET /connectors/:plataforma/oauth/go?state` | `state` assinado | Grava o cookie de vínculo (`prodio_oauth`, HttpOnly/Secure/SameSite=Lax, Path=/connectors) e redireciona para o consentimento da plataforma. Roda sem JWT: é navegação de janela, e quem a autoriza é o `state`, que só `/oauth/start` (admin) emite. |
+| `GET /connectors/:plataforma/oauth/callback?code&state` | `state` assinado **+ cookie de vínculo** | Troca o code por tokens e grava cifrado. Cadastre **esta** URL como redirect no app da plataforma (não a `/oauth/go`). Bling: Basic `client_id:client_secret` + `enable-jwt: 1`. Tiny: Keycloak, credenciais no corpo, com `redirect_uri`. |
 | `POST /webhooks/bling/:connectorId` | `X-Bling-Signature-256` | HMAC-SHA256 do corpo cru com o `client_secret`. Responde 200 na hora, processa em `ctx.waitUntil`. Eventos de pedido buscam o pedido e fazem `worker_upsert_orders` (idempotente por `external_id`). |
 
 ## Crons (`wrangler.toml`)
@@ -55,6 +107,14 @@ pnpm --filter @prodio/worker deploy
 - `0 3 * * *` → `auditor` (saldo do hub por produto → `hub_stock_snapshots`; divergência = hub − (snapshot anterior + bipes do dia) → `audit_runs`).
 
 Erro em um conector grava `ultimo_erro` via `worker_set_sync_state(id, null, false, erro)` e não interrompe os outros tenants.
+
+**Conector ativo sem credencial nenhuma** é o único erro que não se repete: os três jobs marcam
+`status = 'desconectado'` com `ultimo_erro = "sem credenciais: reconecte em Conectores"` e param de
+tentar (`src/jobs/semCredenciais.ts`), porque `listarConectoresAtivos` só olha `conectado` e `erro`.
+É o caso do seed, que cria o conector do BaseLinker conectado e sem credencial (credencial é
+cifrada, não dá para semear) — sem isso o cron gravaria a mesma falha a cada 5 minutos para sempre.
+Salvar a credencial ou concluir o OAuth reativa. Token expirado e queda de rede **não** entram
+aqui: continuam tentando na rodada seguinte, que é exatamente quando o refresh acontece.
 
 ### Outbox e freio
 
@@ -135,12 +195,13 @@ Além do que está em `docs/schema.md`, o worker assume (ver cabeçalho de `src/
 
 ```
 src/index.ts            roteador, cron dispatcher, health, handler de e-mail
+src/cors.ts             lista de origens permitidas, preflight e cabeçalhos
 src/env.ts              tipagem das variáveis
 src/http.ts             cliente HTTP: fila por conta, backoff em 429/5xx, log
 src/db.ts               Supabase (service role) + cliente do usuário; RPCs worker_*
 src/conectores/tipos.ts interface Conector e PedidoNormalizado
 src/conectores/baselinker.ts, bling.ts, tiny.ts (+ tinyMapa.ts, tinyAuth.ts, tinyNfe.ts), index.ts (fábrica)
-src/jobs/syncPedidos.ts, aplicarOutbox.ts, auditor.ts
-src/rotas/webhooks.ts, nfe.ts, credenciais.ts, util.ts
+src/jobs/syncPedidos.ts, aplicarOutbox.ts, auditor.ts, semCredenciais.ts
+src/rotas/webhooks.ts, nfe.ts, credenciais.ts, testar.ts, util.ts
 src/email.ts, src/zip.ts, src/nfe-mapa.ts, src/cron.ts
 ```

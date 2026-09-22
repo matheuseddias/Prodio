@@ -1,9 +1,8 @@
 import { Mail, Trash2, UserPlus } from 'lucide-react'
 import { useState } from 'react'
-import * as mock from '../../domain/mock'
 import { useStore } from '../../domain/store'
 import { relativo } from '../../domain/format'
-import type { Member } from '../../domain/types'
+import type { Location, Member } from '../../domain/types'
 import { Badge, Button, Card, Field, Input, Modal, Select, Table, Td, Th } from '../../ui'
 import { PAPEL_DESC, PAPEL_LABEL, PAPEL_TONE, uid } from './ConfigConst'
 
@@ -19,11 +18,14 @@ function SelectPapel({ value, onChange }: { value: Member['papel']; onChange: (p
   )
 }
 
-function SelectLocal({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+// Os locais vêm do store (tabela `locations`): com a lista de exemplo, o id escolhido ('l1') não
+// era uuid e o insert em memberships.location_id quebrava — e a coluna Local da tabela mostrava o
+// nome errado para quem tinha local de verdade.
+function SelectLocal({ value, onChange, locais }: { value: string; onChange: (id: string) => void; locais: Location[] }) {
   return (
     <Select value={value} onChange={(e) => onChange(e.target.value)}>
       <option value="">Todos os locais</option>
-      {mock.locations.map((l) => (
+      {locais.map((l) => (
         <option key={l.id} value={l.id}>
           {l.nome}
         </option>
@@ -32,13 +34,16 @@ function SelectLocal({ value, onChange }: { value: string; onChange: (id: string
   )
 }
 
+/** Não existe envio de convite: `upsertMember` recusa id que não é uuid (data/escritasSistema.ts). */
+const SEM_CONVITE = 'O convite por e-mail ainda não existe. A pessoa precisa entrar uma vez no Prodio com a conta dela; aí ela aparece nesta lista e você define papel e local.'
+
 export default function ConfigUsuarios() {
-  const { members, upsertMember, removeMember } = useStore()
+  const { members, locations, modo, upsertMember, removeMember } = useStore()
   const [convite, setConvite] = useState(false)
   const [editando, setEditando] = useState<Member | null>(null)
   const [removendo, setRemovendo] = useState<Member | null>(null)
   const [form, setForm] = useState<{ email: string; papel: Member['papel']; localId: string }>({ email: '', papel: 'producao', localId: '' })
-  const local = (id?: string) => mock.locations.find((l) => l.id === id)?.nome
+  const local = (id?: string) => locations.find((l) => l.id === id)?.nome
 
   const convidar = () => {
     upsertMember({ id: uid(), nome: form.email.split('@')[0], email: form.email, papel: form.papel, localId: form.localId || undefined })
@@ -51,11 +56,14 @@ export default function ConfigUsuarios() {
       <Card
         title="Usuários"
         actions={
-          <Button variant="primary" size="sm" onClick={() => setConvite(true)}>
-            <UserPlus size={14} /> Convidar por e-mail
-          </Button>
+          <span title={modo === 'supabase' ? SEM_CONVITE : undefined} className="inline-flex">
+            <Button variant="primary" size="sm" disabled={modo === 'supabase'} onClick={() => setConvite(true)}>
+              <UserPlus size={14} /> Convidar por e-mail
+            </Button>
+          </span>
         }
       >
+        {modo === 'supabase' && <p className="mb-3 text-[13px] text-muted">{SEM_CONVITE}</p>}
         <Table>
           <thead>
             <tr>
@@ -126,7 +134,7 @@ export default function ConfigUsuarios() {
             <SelectPapel value={form.papel} onChange={(papel) => setForm({ ...form, papel })} />
           </Field>
           <Field label="Local" hint="Restringe o que a pessoa vê à unidade escolhida.">
-            <SelectLocal value={form.localId} onChange={(localId) => setForm({ ...form, localId })} />
+            <SelectLocal value={form.localId} onChange={(localId) => setForm({ ...form, localId })} locais={locations} />
           </Field>
         </div>
       </Modal>
@@ -157,7 +165,7 @@ export default function ConfigUsuarios() {
               <SelectPapel value={editando.papel} onChange={(papel) => setEditando({ ...editando, papel })} />
             </Field>
             <Field label="Local">
-              <SelectLocal value={editando.localId ?? ''} onChange={(localId) => setEditando({ ...editando, localId: localId || undefined })} />
+              <SelectLocal value={editando.localId ?? ''} onChange={(localId) => setEditando({ ...editando, localId: localId || undefined })} locais={locations} />
             </Field>
           </div>
         </Modal>

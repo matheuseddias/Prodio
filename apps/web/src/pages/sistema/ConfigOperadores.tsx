@@ -1,10 +1,14 @@
-// Operadores do chão de fábrica (identificados por PIN). Ainda sem operadores no store: lista local.
+// Operadores do chão de fábrica (identificados por PIN).
+//
+// A lista é a do store (tabela `operators`) e as duas ações chamam `upsertOperator` → RPC
+// `upsert_operator`, que cifra o PIN. Antes a tela mexia numa cópia de `mock.operators`: o admin
+// cadastrava a operadora, saía da tela, e no celular (Pin.tsx lê store.operators) o nome não
+// aparecia e o PIN não entrava.
 import { Plus } from 'lucide-react'
 import { useState } from 'react'
-import * as mock from '../../domain/mock'
+import { useStore } from '../../domain/store'
 import type { Operator } from '../../domain/types'
-import { Button, Card, Field, Input, Modal } from '../../ui'
-import { uid } from './ConfigConst'
+import { Button, Card, EmptyState, Field, Input, Modal } from '../../ui'
 
 function InputPin({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
@@ -19,7 +23,7 @@ function InputPin({ value, onChange }: { value: string; onChange: (v: string) =>
 }
 
 export default function ConfigOperadores() {
-  const [operadores, setOperadores] = useState<Operator[]>(mock.operators)
+  const { operators, upsertOperator } = useStore()
   const [pinDe, setPinDe] = useState<Operator | null>(null)
   const [pin, setPin] = useState('')
   const [novoOp, setNovoOp] = useState<{ nome: string; pin: string } | null>(null)
@@ -35,8 +39,9 @@ export default function ConfigOperadores() {
         }
       >
         <p className="mb-3 text-[13px] text-muted">Quem bipa se identifica pelo PIN no aparelho. O PIN é só para atribuir o apontamento, não dá acesso ao painel.</p>
+        {operators.length === 0 && <EmptyState title="Nenhum operador" description="Cadastre quem vai bipar na linha; o PIN é o que identifica a pessoa no aparelho." />}
         <ul className="divide-y divide-border/70">
-          {operadores.map((o) => (
+          {operators.map((o) => (
             <li key={o.id} className="flex items-center justify-between gap-3 py-2.5">
               <div className="flex items-center gap-3 min-w-0">
                 <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-surface-2 text-[12px] font-semibold text-muted">{o.nome.slice(0, 2).toUpperCase()}</span>
@@ -73,7 +78,7 @@ export default function ConfigOperadores() {
                 variant="primary"
                 disabled={pin.length !== 4}
                 onClick={() => {
-                  setOperadores((l) => l.map((o) => (o.id === pinDe.id ? { ...o, pin } : o)))
+                  upsertOperator({ id: pinDe.id, nome: pinDe.nome, pin })
                   setPinDe(null)
                 }}
               >
@@ -101,7 +106,7 @@ export default function ConfigOperadores() {
                 variant="primary"
                 disabled={!novoOp.nome.trim() || novoOp.pin.length !== 4}
                 onClick={() => {
-                  setOperadores((l) => [...l, { id: uid(), nome: novoOp.nome.trim(), pin: novoOp.pin }])
+                  upsertOperator({ nome: novoOp.nome.trim(), pin: novoOp.pin })
                   setNovoOp(null)
                 }}
               >

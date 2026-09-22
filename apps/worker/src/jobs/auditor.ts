@@ -5,6 +5,7 @@ import type { ConectorRow, Db } from '../db'
 import { montarConector } from '../conectores'
 import { ehUnsupported, type SaldoHub } from '../conectores/tipos'
 import { log, mensagemErro } from '../log'
+import { desativarSeSemCredenciais } from './semCredenciais'
 import type { MontarConector } from './syncPedidos'
 
 export interface Divergencia {
@@ -83,6 +84,8 @@ export async function auditor(env: Env, db: Db, montar: MontarConector = (row) =
       resumo.divergencias += r.divergencias
     } catch (e) {
       resumo.falhas++
+      // Sem credencial nenhuma: desativa em vez de auditar um conector que não existe de fato.
+      if (await desativarSeSemCredenciais(row, db, e)) continue
       log('error', 'auditor.falha', { connector: row.id, tenant: row.tenant_id, erro: mensagemErro(e) })
     }
   }

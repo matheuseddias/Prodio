@@ -120,7 +120,42 @@ Depois de criar o registro, volte **no painel** da Cloudflare, em Workers & Page
 
 Quando `app.prodio.com.br` estiver no ar, volte ao passo 4 e ajuste o Site URL do Supabase.
 
-## 6. Conferir se deu certo
+## 6. Liberar o endereço da interface no worker (`CORS_ORIGENS`)
+
+As telas que falam com o worker (upload de XML, credenciais de conector, "Testar conexão") só funcionam se o worker liberar a origem do site. Isso é variável do **worker**, não do Pages:
+
+```bash
+cd apps/worker
+wrangler secret put CORS_ORIGENS
+# cole numa linha só, separado por vírgula:
+# https://app.prodio.com.br,https://prodio-web.pages.dev,https://*.prodio-web.pages.dev,http://localhost:5173
+```
+
+| Item da lista | Para quê |
+|---|---|
+| `https://app.prodio.com.br` | o domínio final. |
+| `https://prodio-web.pages.dev` | o endereço de produção do Pages. |
+| `https://*.prodio-web.pages.dev` | os endereços de preview, que mudam a cada publicação (`https://40c39f1e.prodio-web.pages.dev`). O curinga casa rótulo inteiro de host, com o mesmo protocolo: `https://prodio-web.pages.dev.invasor.com` **não** entra. |
+| `http://localhost:5173` | o `pnpm dev` da sua máquina. |
+
+O worker devolve a origem exata que chamou, **nunca `*`**: essas rotas recebem o token do usuário no header `Authorization`, e `*` com credencial de portador convidaria qualquer site a usar o token de quem está logado no Prodio. Origem fora da lista não recebe cabeçalho de CORS nenhum e o navegador barra a chamada.
+
+Sem `CORS_ORIGENS` configurada só `localhost` passa, e a interface publicada falha com erro de CORS (o resto do sistema continua funcionando, porque fala direto com o Supabase). Quando acontecer, o log do worker mostra a origem recusada em `cors.origemRecusada`. Detalhes em `apps/worker/README.md`.
+
+Para conferir depois de publicar o worker (troque pelo endereço dele):
+
+```bash
+curl -s -o /dev/null -D - -X OPTIONS \
+  -H 'Origin: https://app.prodio.com.br' -H 'Access-Control-Request-Method: POST' \
+  https://prodio-worker.<conta>.workers.dev/nfe/xml | grep -i '^access-control'
+# esperado: access-control-allow-origin: https://app.prodio.com.br  (e não "*")
+```
+
+Lembre também da `VITE_WORKER_URL` do passo 3: ela é lida no build da interface, então apontá-la para o worker exige um build novo.
+
+`CORS_ORIGENS` é a variável do worker que este passo resolve, mas não é a única que a primeira publicação precisa. A outra que morde aqui é a **`PUBLIC_URL`** (o endereço público do próprio worker): é dela que sai o `redirect_uri` do OAuth, então sem ela o botão "Conectar o Tiny" e o "Conectar o Bling" respondem erro 500 — o BaseLinker, que é token colado, funciona sem. As duas só podem ser preenchidas **depois** do primeiro `wrangler deploy`, porque é ele que revela o endereço. A lista completa dos segredos do worker, com a ordem de publicação, está em `docs/deploy.md` (passo 8) e em `apps/worker/README.md`.
+
+## 7. Conferir se deu certo
 
 ```bash
 # a rota profunda tem que voltar 200 e HTML, não 404
@@ -146,4 +181,4 @@ No navegador, em uma aba anônima:
 - A `service_role` key e a `CREDENTIALS_KEY` só existem como secret do worker. Se uma delas aparecer num `VITE_*`, considere-a vazada e gire a chave.
 - O Pages guarda todas as versões publicadas. Para voltar atrás, **no painel**, em Deployments, use Rollback na versão anterior — não precisa buildar de novo.
 - Cada push numa branch que não é a de produção gera um link `*.prodio-web.pages.dev` público. Não use esses links para dados reais de cliente.
-- Para chamar o worker a partir do navegador (upload de XML, credenciais de conector), o worker precisa responder CORS liberando a origem `https://app.prodio.com.br`. Enquanto isso não existir, essas telas falham com erro de CORS — o resto do sistema funciona normalmente, porque fala direto com o Supabase.
+- As telas que falam com o worker (XML, conectores) dependem do passo 6: sem a origem liberada lá, elas falham com erro de CORS.

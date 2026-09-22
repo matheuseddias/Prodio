@@ -6,6 +6,7 @@ import { Badge, Button, Card, EmptyState, Input, Table, Td, Th, cx } from '../..
 import EstoqueInventarioSessao from './EstoqueInventarioSessao'
 import {
   REGRA_ABC_PADRAO,
+  locaisDeContagem,
   programacao,
   resumoSessao,
   semanasAcimaDe95,
@@ -18,8 +19,11 @@ import {
 } from './inventarioSessoes'
 
 export default function EstoqueInventario() {
-  const { materials, addStockMove } = useStore()
-  const [sessoes, setSessoes] = useState<SessaoInventario[]>(() => sessoesExemplo(materials))
+  const { materials, locations, modo, addStockMove } = useStore()
+  // Com banco de verdade a tela começa vazia: as sessões ainda não são gravadas (as RPCs
+  // open/save/close_inventory_session existem e não estão ligadas), e semear com as sessões de
+  // exemplo mostrava contagem de outra empresa e uma Acurácia calculada em cima delas.
+  const [sessoes, setSessoes] = useState<SessaoInventario[]>(() => (modo === 'memoria' ? sessoesExemplo(materials) : []))
   const [regra, setRegra] = useState<RegraABC>(REGRA_ABC_PADRAO)
   const [abertaId, setAbertaId] = useState<string | null>(null)
   const [novaComIds, setNovaComIds] = useState<string[] | null>(null)
@@ -48,6 +52,12 @@ export default function EstoqueInventario() {
       <p className="text-sm text-muted">
         Contagem por sessão, no celular ou aqui; só o que divergir vira ajuste. Sobras aproveitáveis contam como estoque, quebra e caco não.
       </p>
+      {modo !== 'memoria' && (
+        <div className="rounded-lg border border-warn/40 bg-warn-soft/40 p-3 text-[13px]">
+          <strong>A sessão de contagem ainda não é gravada no banco.</strong> Ela vive nesta aba: recarregar a página no meio da contagem perde o que foi contado, e o histórico de sessões não
+          aparece em outro computador nem no celular. Ao fechar a sessão, os ajustes de estoque são lançados de verdade e ficam no histórico do insumo.
+        </div>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-[1fr_340px] items-start">
         <div className="space-y-4 min-w-0">
@@ -170,6 +180,7 @@ export default function EstoqueInventario() {
         <EstoqueInventarioSessao
           key={sessaoAberta?.id ?? 'nova'}
           sessao={sessaoAberta}
+          locais={locaisDeContagem(locations, modo)}
           idsIniciais={novaComIds ?? []}
           sugestoes={sug}
           onSalvar={(s) => { salvar(s); setAbertaId(s.id); setNovaComIds(null) }}

@@ -143,22 +143,26 @@ export default function Receber() {
         </ul>
       </section>
 
-      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <button
-          type="button"
-          onClick={() => procurar(CHAVE_DEMO)}
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-700 text-[14px] text-slate-400 active:bg-slate-900"
-        >
-          <ScanBarcode size={16} /> Simular bipe da NF-e 48211
-        </button>
-        <button
-          type="button"
-          onClick={() => procurar(CHAVE_DEMO_PROVEDOR)}
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-700 text-[14px] text-slate-400 active:bg-slate-900"
-        >
-          <ScanSearch size={16} /> Simular bipe de nota desconhecida
-        </button>
-      </div>
+      {/* Chaves de demonstração: só no modo sem banco. Num tenant real a primeira não existe e a
+          segunda é a porta de entrada da nota fabricada pela folha "Nota não encontrada". */}
+      {store.modo === 'memoria' && (
+        <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => procurar(CHAVE_DEMO)}
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-700 text-[14px] text-slate-400 active:bg-slate-900"
+          >
+            <ScanBarcode size={16} /> Simular bipe da NF-e 48211
+          </button>
+          <button
+            type="button"
+            onClick={() => procurar(CHAVE_DEMO_PROVEDOR)}
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-700 text-[14px] text-slate-400 active:bg-slate-900"
+          >
+            <ScanSearch size={16} /> Simular bipe de nota desconhecida
+          </button>
+        </div>
+      )}
 
       {/* Rodapé fixo */}
       <div className="fixed inset-x-0 bottom-[68px] z-30 px-4 pb-2" style={{ marginBottom: 'env(safe-area-inset-bottom)' }}>

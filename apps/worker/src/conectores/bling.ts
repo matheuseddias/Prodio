@@ -89,7 +89,8 @@ export async function hmacSha256Hex(chave: string, corpo: string): Promise<strin
   return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-const igualConstante = (a: string, b: string): boolean => {
+// Comparação de segredo sem vazar por tempo. Usada na assinatura do webhook e no state do OAuth.
+export const igualConstante = (a: string, b: string): boolean => {
   if (a.length !== b.length) return false
   let diff = 0
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
@@ -317,6 +318,14 @@ export class ConectorBling implements Conector {
       }
     }
     return resultados
+  }
+
+  // Teste de conexão: uma página de um produto só. Renova o token se precisar e não escreve nada.
+  async testarConexao(): Promise<string> {
+    const r = await this.chamar<{ data?: { id: number; codigo?: string; nome?: string }[] }>('GET', '/produtos', { query: { pagina: '1', limite: '1' } })
+    const amostra = r.data ?? []
+    if (amostra.length === 0) return 'o Bling aceitou o token, mas o catálogo desta conta está vazio'
+    return `conectado ao Bling: o catálogo respondeu (primeiro produto "${amostra[0].nome ?? amostra[0].codigo ?? amostra[0].id}")`
   }
 
   async findInboundNfe(chave: string): Promise<NfeEncontrada | null> {

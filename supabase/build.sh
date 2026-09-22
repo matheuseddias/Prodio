@@ -94,6 +94,8 @@ begin
   delete from public.integration_outbox where tenant_id = t;
   delete from public.order_items where tenant_id = t;
   delete from public.orders where tenant_id = t;
+  delete from public.audit_runs where tenant_id = t;
+  delete from public.hub_stock_snapshots where tenant_id = t;
   delete from public.connector_status_map where tenant_id = t;
   delete from public.sync_state where tenant_id = t;
   delete from public.connector_credentials where tenant_id = t;

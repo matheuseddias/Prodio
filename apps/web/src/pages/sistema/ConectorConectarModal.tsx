@@ -1,38 +1,198 @@
-import { Check, ExternalLink, Loader2 } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+// Conectar uma plataforma de verdade.
+//
+// Nada aqui marca um conector como conectado por conta própria: quem carimba é o worker, depois de
+// uma chamada real à plataforma (POST /connectors/:id/test). A tela só mostra o andamento e, no
+// fim, espelha no store o status que foi verificado. A ordem dos passos e a razão de cada um estão
+// em apps/web/src/data/conectores.ts.
+//
+// Por que esta tela chama data/ direto em vez de passar tudo pelo store: conectar é um aperto de
+// mão com credencial (RPC que devolve o id → worker cifra → worker testa), não estado de domínio.
+// O estado de domínio continua sendo do store: quem muda o conector na tela é `setConnector`, e só
+// depois da prova — o SupabaseRepo relê `connectors` e `outbox` do banco nessa mesma ação.
+import { AlertTriangle, Check, ExternalLink, Loader2 } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useAuth } from '../../app/auth'
+import { garantirConector, iniciarOauth, lerConfigConector, lerStatusConector, salvarCredenciais, testarConector } from '../../data/conectores'
+import { mensagemErro } from '../../data/erros'
+import { ErroWorker, exigirWorkerConfigurado } from '../../data/worker'
 import { useStore } from '../../domain/store'
 import type { Connector } from '../../domain/types'
-import { Button, Field, Input, Modal } from '../../ui'
-import { workerUrl } from '../../data/supabaseClient'
+import { Button, Modal, cx } from '../../ui'
+import { CAMPOS, TEM_ADAPTADOR, ehOauth, faltaObrigatorio, separar } from './ConectorCampos'
 import { Nota } from './ConectorCard'
-import { META, urlRetornoOauth } from './ConectorMeta'
+import { CamposPlataforma, Instrucoes } from './ConectorConectarForm'
 
-// ---------- Modal de conexão por plataforma ----------
+type EstadoPasso = 'espera' | 'rodando' | 'ok' | 'falhou'
+interface Passo {
+  chave: string
+  titulo: string
+  estado: EstadoPasso
+  detalhe?: string
+}
+
+/** Tempo máximo esperando o consentimento na janela da plataforma. */
+const LIMITE_AUTORIZACAO_MS = 10 * 60_000
+
 export function ConectorConectarModal({ c, onClose }: { c: Connector; onClose: () => void }) {
   const { setConnector } = useStore()
-  const [campos, setCampos] = useState<Record<string, string>>({})
-  const [fase, setFase] = useState<'form' | 'testando' | 'redirecionando' | 'ok'>('form')
-  const set = (k: string, v: string) => setCampos((s) => ({ ...s, [k]: v }))
-  const m = META[c.plataforma]
+  const { tenantId, papel } = useAuth()
+  const [valores, setValores] = useState<Record<string, string>>({})
+  const [fase, setFase] = useState<'form' | 'andamento' | 'ok'>('form')
+  const [passos, setPassos] = useState<Passo[]>([])
+  const [erro, setErro] = useState<string | null>(null)
+  const [detalhe, setDetalhe] = useState('')
+  const [aguardando, setAguardando] = useState(false)
+  const [urlManual, setUrlManual] = useState<string | null>(null)
+  const espera = useRef<{ concluir: () => void; cancelar: () => void } | null>(null)
+  const janelaRef = useRef<Window | null>(null)
+  const vivo = useRef(true)
 
-  const concluir = () => {
-    setConnector({
-      ...c,
-      status: 'conectado',
-      ultimoSync: new Date().toISOString(),
-      pedidos24h: c.pedidos24h ?? 0,
-      outboxPendentes: c.outboxPendentes ?? 0,
-      cursor: c.cursor ?? 'inicial',
+  const set = (k: string, v: string) => setValores((s) => ({ ...s, [k]: v }))
+  const oauth = ehOauth(c.plataforma)
+  const pronto = TEM_ADAPTADOR[c.plataforma]
+  const soLeitura = !!papel && papel !== 'admin'
+
+  // Reconexão não pode perder o endereçamento já salvo: config vem do banco e pré-preenche.
+  useEffect(() => {
+    void lerConfigConector(c.id).then((cfg) => {
+      if (!vivo.current) return
+      setValores((v) => {
+        const novo = { ...v }
+        for (const campo of CAMPOS[c.plataforma]) {
+          const atual = cfg[campo.chave]
+          if (campo.destino === 'config' && novo[campo.chave] === undefined && atual != null && atual !== '') novo[campo.chave] = String(atual)
+        }
+        return novo
+      })
     })
-    setFase('ok')
-  }
-  const simular = (f: 'testando' | 'redirecionando') => {
-    setFase(f)
-    window.setTimeout(concluir, 1000)
+  }, [c.id, c.plataforma])
+
+  useEffect(() => {
+    vivo.current = true
+    return () => {
+      vivo.current = false
+      espera.current?.cancelar()
+      janelaRef.current?.close()
+    }
+  }, [])
+
+  const marcar = (chave: string, estado: EstadoPasso, det?: string) => setPassos((ps) => ps.map((p) => (p.chave === chave ? { ...p, estado, detalhe: det ?? p.detalhe } : p)))
+
+  // Espera o consentimento: termina quando a janela da plataforma é fechada (o callback do worker
+  // responde HTML pedindo isso) ou quando o usuário diz que já autorizou. Nunca fica presa: tem
+  // prazo, botão e Cancelar.
+  const esperarAutorizacao = (janela: Window | null): Promise<void> =>
+    new Promise((resolve, reject) => {
+      let vigia = 0
+      let prazo = 0
+      const encerrar = () => {
+        window.clearInterval(vigia)
+        window.clearTimeout(prazo)
+        espera.current = null
+        setAguardando(false)
+      }
+      vigia = window.setInterval(() => {
+        if (janela && janela.closed) {
+          encerrar()
+          resolve()
+        }
+      }, 700)
+      prazo = window.setTimeout(() => {
+        encerrar()
+        reject(new Error('A autorização demorou demais. Feche a janela da plataforma e tente de novo.'))
+      }, LIMITE_AUTORIZACAO_MS)
+      espera.current = {
+        concluir: () => {
+          encerrar()
+          resolve()
+        },
+        cancelar: () => {
+          encerrar()
+          reject(new Error('Conexão cancelada.'))
+        },
+      }
+      setAguardando(true)
+    })
+
+  async function conectar() {
+    // Sem endereço de worker nada vai para frente: diga isso ainda no formulário, com o que a
+    // pessoa digitou na tela, em vez de criar a linha do conector e travar no passo seguinte.
+    try {
+      exigirWorkerConfigurado()
+    } catch (e) {
+      setErro(mensagemErro(e))
+      setFase('form')
+      return
+    }
+    // A janela precisa abrir no clique, antes de qualquer await, senão o navegador bloqueia.
+    const janela = oauth ? window.open('', `prodio-oauth-${c.plataforma}`, 'width=560,height=760') : null
+    janelaRef.current = janela
+    const credenciais = separar(c.plataforma, valores, 'credencial')
+    setPassos(
+      [
+        { chave: 'conector', titulo: 'Registrando o conector no Prodio' },
+        ...(Object.keys(credenciais).length ? [{ chave: 'credencial', titulo: 'Guardando a credencial cifrada' }] : []),
+        ...(oauth ? [{ chave: 'autorizacao', titulo: `Autorização no ${c.nome}` }] : []),
+        { chave: 'teste', titulo: `Testando a conexão com ${c.nome}` },
+      ].map((p) => ({ ...p, estado: 'espera' as EstadoPasso })),
+    )
+    setErro(null)
+    setUrlManual(null)
+    setFase('andamento')
+    // Só muda o status do conector o que foi verificado agora; falha de rede ou de sessão não é
+    // prova de nada sobre a plataforma.
+    let verificado: Connector['status'] | null = null
+    let idConector = ''
+    try {
+      marcar('conector', 'rodando')
+      const id = await garantirConector(c, tenantId, separar(c.plataforma, valores, 'config'))
+      idConector = id
+      marcar('conector', 'ok')
+
+      if (Object.keys(credenciais).length) {
+        marcar('credencial', 'rodando')
+        const r = await salvarCredenciais(id, credenciais)
+        marcar('credencial', 'ok', `${r.campos.join(', ')} — cifrado no banco`)
+      }
+
+      if (ehOauth(c.plataforma)) {
+        marcar('autorizacao', 'rodando')
+        const { url } = await iniciarOauth(id, c.plataforma)
+        if (janela && !janela.closed) janela.location.href = url
+        else setUrlManual(url)
+        await esperarAutorizacao(janela)
+        marcar('autorizacao', 'ok')
+      }
+
+      marcar('teste', 'rodando')
+      try {
+        const r = await testarConector(id)
+        verificado = 'conectado'
+        marcar('teste', 'ok', r.detalhe)
+        setDetalhe(r.detalhe)
+        setFase('ok')
+      } catch (e) {
+        // O worker respondeu: ele mesmo já gravou 'erro' com esta mensagem no conector.
+        if (e instanceof ErroWorker && e.causa === 'worker') verificado = 'erro'
+        throw e
+      }
+    } catch (e) {
+      janela?.close()
+      setErro(mensagemErro(e))
+      setPassos((ps) => ps.map((p) => (p.estado === 'rodando' ? { ...p, estado: 'falhou' } : p)))
+    } finally {
+      janelaRef.current = null
+      // O worker respondeu ao teste: quem tem a verdade é o banco, onde ele acabou de gravar o
+      // status verificado (pode ser 'desconectado', se descobriu que não há credencial salva).
+      // Só o "conectado" tem fallback próprio: a resposta 200 do teste já é a prova.
+      if (verificado) {
+        const status = (await lerStatusConector(idConector)) ?? (verificado === 'conectado' ? 'conectado' : null)
+        if (status) setConnector({ ...c, status })
+      }
+    }
   }
 
-  const preenchido = (...ks: string[]) => ks.every((k) => (campos[k] ?? '').trim().length > 0)
-
+  const bloqueado = !pronto || soLeitura || faltaObrigatorio(c.plataforma, valores)
   let corpo: ReactNode
   let footer: ReactNode
 
@@ -43,7 +203,8 @@ export function ConectorConectarModal({ c, onClose }: { c: Connector; onClose: (
           <Check size={24} />
         </span>
         <div className="mt-3 font-semibold">{c.nome} conectado</div>
-        <p className="mt-1 max-w-sm text-sm text-muted">O primeiro sync de pedidos começa em instantes. Depois, mapeie os status em Configurar → Pedidos.</p>
+        <p className="mt-1 max-w-sm text-sm text-muted">{detalhe}</p>
+        <p className="mt-2 max-w-sm text-[13px] text-faint">O primeiro sync de pedidos entra no próximo ciclo do worker (a cada 5 min). Depois, mapeie os status em Configurar → Pedidos.</p>
       </div>
     )
     footer = (
@@ -51,146 +212,114 @@ export function ConectorConectarModal({ c, onClose }: { c: Connector; onClose: (
         Fechar
       </Button>
     )
-  } else if (fase === 'testando' || fase === 'redirecionando') {
+  } else if (fase === 'andamento') {
     corpo = (
-      <div className="flex flex-col items-center py-8 text-center">
-        <Loader2 size={28} className="animate-spin text-accent" />
-        <div className="mt-3 text-sm text-muted">{fase === 'testando' ? 'Testando conexão…' : `Redirecionando para ${c.nome}… você volta ao Prodio depois de autorizar.`}</div>
+      <div className="space-y-4">
+        <ListaPassos passos={passos} />
+        {aguardando && (
+          <div className="rounded-lg border border-border bg-surface-2 p-3 text-[13px]">
+            <div className="font-medium">Autorize o Prodio na janela que abriu.</div>
+            <p className="mt-1 text-muted">Ao terminar, feche aquela janela: o Prodio testa a conexão sozinho. Se ela não abriu, use o link abaixo.</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {urlManual && (
+                <a href={urlManual} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-medium text-accent-text underline">
+                  <ExternalLink size={14} /> Abrir autorização do {c.nome}
+                </a>
+              )}
+              <Button size="sm" onClick={() => espera.current?.concluir()}>
+                Já autorizei, testar agora
+              </Button>
+            </div>
+          </div>
+        )}
+        {erro && <CaixaErro texto={erro} />}
       </div>
     )
+    footer = erro ? (
+      <>
+        <Button onClick={() => setFase('form')}>Voltar</Button>
+        <Button variant="primary" onClick={() => void conectar()}>
+          Tentar de novo
+        </Button>
+      </>
+    ) : (
+      <Button
+        onClick={() => {
+          espera.current?.cancelar()
+          onClose()
+        }}
+      >
+        Cancelar
+      </Button>
+    )
   } else {
-    switch (c.plataforma) {
-      case 'baselinker':
-        corpo = (
-          <div className="space-y-4">
-            <p className="text-sm text-muted">{m.auth} Gere o token em Minha conta → API na sua conta BaseLinker.</p>
-            <Field label="Token da API" hint="Enviado como X-BLToken. Fica salvo criptografado.">
-              <Input value={campos.token ?? ''} onChange={(e) => set('token', e.target.value)} placeholder="Cole o token da conta" className="font-mono" autoFocus />
-            </Field>
-            <Nota>{m.pedidos} Após conectar, configure o De-Para de status.</Nota>
-          </div>
-        )
-        footer = (
-          <>
-            <Button onClick={onClose}>Cancelar</Button>
-            <Button variant="primary" disabled={!preenchido('token')} onClick={() => simular('testando')}>
-              Testar conexão
-            </Button>
-          </>
-        )
-        break
-      case 'bling':
-        corpo = (
-          <div className="space-y-4">
-            <p className="text-sm text-muted">
-              {m.auth} Ao clicar em Autorizar, você vai para o Bling, entra na sua conta, aceita as permissões do Prodio e volta para cá já conectado. A renovação do token é automática.
-            </p>
-            <ul className="space-y-1 text-[13px] text-muted">
-              <li>• {m.webhooks}</li>
-              <li>• {m.pedidos}</li>
-              <li>• {m.catalogo}</li>
-            </ul>
-            <Nota tone="warn">Desde abril/2026, pedidos lidos por API podem contar no limite do plano do cliente no Bling. Ajuste o intervalo de polling em Sincronização para reduzir leituras.</Nota>
-          </div>
-        )
-        footer = (
-          <>
-            <Button onClick={onClose}>Cancelar</Button>
-            <Button variant="primary" onClick={() => simular('redirecionando')}>
-              <ExternalLink size={15} /> Autorizar no Bling
-            </Button>
-          </>
-        )
-        break
-      case 'tiny':
-        corpo = (
-          <div className="space-y-4">
-            <p className="text-sm text-muted">{m.auth}</p>
-            <ol className="space-y-2 text-sm">
-              {[
-                'No Tiny, abra Configurações → Aplicativos → Criar aplicativo (privado).',
-                `Dê o nome "Prodio" e informe a URL de retorno: ${urlRetornoOauth('tiny')}.`,
-                'Copie o client_id e o client_secret gerados e cole abaixo.',
-                'Clique em Autorizar: você entra no Tiny, aceita e volta conectado.',
-              ].map((t, i) => (
-                <li key={i} className="flex gap-3">
-                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-accent-soft text-[12px] font-semibold text-accent-text">{i + 1}</span>
-                  <span>{t}</span>
-                </li>
-              ))}
-            </ol>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="client_id">
-                <Input value={campos.clientId ?? ''} onChange={(e) => set('clientId', e.target.value)} className="font-mono" />
-              </Field>
-              <Field label="client_secret">
-                <Input type="password" value={campos.clientSecret ?? ''} onChange={(e) => set('clientSecret', e.target.value)} className="font-mono" />
-              </Field>
-            </div>
-            {!workerUrl && <Nota tone="warn">A URL de retorno acima está usando o endereço desta janela. Defina VITE_WORKER_URL com o endereço público do worker antes de cadastrar o aplicativo no Tiny.</Nota>}
-            <Nota>{m.webhooks} O Prodio consulta pedidos em intervalos e busca o detalhe de cada pedido para obter os itens.</Nota>
-          </div>
-        )
-        footer = (
-          <>
-            <Button onClick={onClose}>Cancelar</Button>
-            <Button variant="primary" disabled={!preenchido('clientId', 'clientSecret')} onClick={() => simular('redirecionando')}>
-              <ExternalLink size={15} /> Autorizar no Tiny
-            </Button>
-          </>
-        )
-        break
-      case 'omie':
-        corpo = (
-          <div className="space-y-4">
-            <p className="text-sm text-muted">{m.auth} Gere em Configurações → Aplicativos → Chaves de API dentro do Omie.</p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="app_key">
-                <Input value={campos.appKey ?? ''} onChange={(e) => set('appKey', e.target.value)} className="font-mono" autoFocus />
-              </Field>
-              <Field label="app_secret">
-                <Input type="password" value={campos.appSecret ?? ''} onChange={(e) => set('appSecret', e.target.value)} className="font-mono" />
-              </Field>
-            </div>
-            <Nota>
-              {m.pedidos} O Prodio respeita o limite e evita chamadas repetidas. {m.webhooks}
-            </Nota>
-          </div>
-        )
-        footer = (
-          <>
-            <Button onClick={onClose}>Cancelar</Button>
-            <Button variant="primary" disabled={!preenchido('appKey', 'appSecret')} onClick={() => simular('testando')}>
-              Testar conexão
-            </Button>
-          </>
-        )
-        break
-      case 'magis5':
-        corpo = (
-          <div className="space-y-4">
-            <p className="text-sm text-muted">{m.auth}</p>
-            <Field label="Chave de API">
-              <Input value={campos.apiKey ?? ''} onChange={(e) => set('apiKey', e.target.value)} className="font-mono" autoFocus />
-            </Field>
-            <Nota tone="warn">A documentação pública do Magis5 é limitada: a listagem de pedidos e os webhooks precisam ser confirmados com uma conta de teste antes de usar em produção.</Nota>
-          </div>
-        )
-        footer = (
-          <>
-            <Button onClick={onClose}>Cancelar</Button>
-            <Button variant="primary" disabled={!preenchido('apiKey')} onClick={() => simular('testando')}>
-              Testar conexão
-            </Button>
-          </>
-        )
-        break
-    }
+    corpo = (
+      <div className="space-y-4">
+        <Instrucoes plataforma={c.plataforma} />
+        {pronto && <CamposPlataforma plataforma={c.plataforma} valores={valores} onChange={set} desabilitado={soLeitura} />}
+        {!pronto && <Nota tone="warn">O worker do Prodio ainda não tem adaptador para {c.nome}: guardar a credencial agora não conectaria nada. Conecte BaseLinker, Bling ou Tiny enquanto isso.</Nota>}
+        {soLeitura && <Nota tone="warn">Só o administrador da empresa conecta plataformas.</Nota>}
+        {erro && <CaixaErro texto={erro} />}
+      </div>
+    )
+    footer = (
+      <>
+        <Button onClick={onClose}>Cancelar</Button>
+        <Button variant="primary" disabled={bloqueado} onClick={() => void conectar()}>
+          {oauth ? (
+            <>
+              <ExternalLink size={15} /> Autorizar no {c.nome}
+            </>
+          ) : (
+            'Salvar e testar conexão'
+          )}
+        </Button>
+      </>
+    )
   }
 
   return (
     <Modal open onClose={onClose} title={`Conectar ${c.nome}`} footer={footer}>
       {corpo}
     </Modal>
+  )
+}
+
+// ---------- Andamento ----------
+function ListaPassos({ passos }: { passos: Passo[] }) {
+  return (
+    <ol className="space-y-3">
+      {passos.map((p) => (
+        <li key={p.chave} className="flex gap-3">
+          <span
+            className={cx(
+              'mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full',
+              p.estado === 'ok' && 'bg-ok-soft text-ok',
+              p.estado === 'rodando' && 'bg-accent-soft text-accent-text',
+              p.estado === 'falhou' && 'bg-danger-soft text-danger',
+              p.estado === 'espera' && 'bg-surface-2 text-faint',
+            )}
+          >
+            {p.estado === 'ok' && <Check size={14} />}
+            {p.estado === 'rodando' && <Loader2 size={14} className="animate-spin" />}
+            {p.estado === 'falhou' && <AlertTriangle size={14} />}
+            {p.estado === 'espera' && <span className="h-1.5 w-1.5 rounded-full bg-faint" />}
+          </span>
+          <div className="min-w-0">
+            <div className={cx('text-sm', p.estado === 'espera' ? 'text-faint' : 'font-medium')}>{p.titulo}</div>
+            {p.detalhe && <div className="text-[13px] text-muted">{p.detalhe}</div>}
+          </div>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+function CaixaErro({ texto }: { texto: string }) {
+  return (
+    <div className="flex gap-2 rounded-lg border border-danger/30 bg-danger-soft/40 px-3 py-2 text-[13px] text-danger">
+      <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+      <span>{texto}</span>
+    </div>
   )
 }

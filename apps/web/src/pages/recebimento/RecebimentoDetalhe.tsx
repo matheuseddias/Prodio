@@ -1,5 +1,8 @@
 import { AlertTriangle, Ban, Check, Link2, Monitor } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useAuth } from '../../app/auth'
+import { lerDeParaFornecedor, salvarDeParaFornecedor, type VinculoFornecedor } from '../../data/deParaFornecedor'
+import { registrarMotivoIgnorada } from '../../data/recebimento'
 import { brl, chaveFmt, dataBR, num } from '../../domain/format'
 import { useLookups, useStore } from '../../domain/store'
 import type { NfeInbound, NfeItem } from '../../domain/types'
@@ -9,33 +12,64 @@ import { ORIGEM_LABEL, ORIGEM_TONE, STATUS_LABEL, STATUS_TONE, cfopInfo, porOcFr
 export function DetalheNfe({ nfe, fornecedor, onClose }: { nfe: NfeInbound; fornecedor?: string; onClose: () => void }) {
   const store = useStore()
   const { material } = useLookups()
+  const { tenantId } = useAuth()
   const [vinculando, setVinculando] = useState<number | null>(null)
   const [selMat, setSelMat] = useState('')
   const [fator, setFator] = useState('')
   const [ignorando, setIgnorando] = useState(false)
   const [motivo, setMotivo] = useState('')
   const [feito, setFeito] = useState<string | null>(null)
+  // De-Para deste fornecedor (supplier_materials): pré-preenche o item e recebe o vínculo novo.
+  const [depara, setDepara] = useState<Record<string, VinculoFornecedor>>({})
+  const [guardado, setGuardado] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    let ativo = true
+    void lerDeParaFornecedor(nfe.supplierId)
+      .then((d) => ativo && setDepara(d))
+      .catch(() => {})
+    return () => {
+      ativo = false
+    }
+  }, [nfe.supplierId])
 
   const ocs = store.purchaseOrders.filter((po) => nfe.poIds.includes(po.id))
   const semDePara = nfe.itens.filter((i) => !i.materialId).length
   const podeReceber = nfe.status !== 'recebida' && nfe.status !== 'ignorada' && nfe.itens.length > 0 && semDePara === 0
 
   const abrirVinculo = (it: NfeItem) => {
+    const sugestao = depara[it.cProd.trim()]
     setVinculando(it.nItem)
-    setSelMat(it.materialId ?? '')
-    setFator(it.fator ? String(it.fator) : '')
+    setSelMat(it.materialId ?? sugestao?.materialId ?? '')
+    const f = it.fator ?? sugestao?.fator
+    setFator(f ? String(f) : '')
+    setGuardado(null)
   }
   const salvarVinculo = () => {
     const f = Number(fator.replace(',', '.'))
     if (!selMat || !(f > 0) || vinculando === null) return
+    const item = nfe.itens.find((i) => i.nItem === vinculando)
     store.updateNfe({
       ...nfe,
       itens: nfe.itens.map((i) => (i.nItem === vinculando ? { ...i, materialId: selMat, fator: f, qtdConsumo: Math.round(i.qCom * f * 1000) / 1000 } : i)),
     })
+    // O vínculo por fornecedor é uma escrita à parte (supplier_materials): falhar aqui não pode
+    // derrubar o De-Para desta nota, que já foi aplicado acima.
+    if (item) {
+      void salvarDeParaFornecedor(tenantId, { supplierId: nfe.supplierId, codigo: item.cProd, materialId: selMat, fator: f, unidadeCompra: item.uCom })
+        .then((ok) => {
+          if (ok) setDepara((d) => ({ ...d, [item.cProd.trim()]: { materialId: selMat, fator: f } }))
+          setGuardado(ok)
+        })
+        .catch(() => setGuardado(false))
+    }
     setVinculando(null)
   }
   const ignorar = () => {
     store.updateNfe({ ...nfe, status: 'ignorada' })
+    // O motivo é gravado à parte, em nfe_inbound.motivo_ignorada: quem abrir a nota depois precisa
+    // saber por que ela foi descartada. Antes ele sumia junto com o modal.
+    void registrarMotivoIgnorada(tenantId, nfe, motivo).catch(() => {})
     setFeito(`Nota ${nfe.numero} ignorada${motivo ? `: ${motivo}` : ''}.`)
     setIgnorando(false)
   }
@@ -189,6 +223,10 @@ export function DetalheNfe({ nfe, fornecedor, onClose }: { nfe: NfeInbound; forn
         )}
       </div>
 
+      {guardado === false && vinculando === null && (
+        <p className="mt-3 text-[12px] text-warn">O De-Para foi aplicado a esta nota, mas não foi possível guardá-lo para o fornecedor: na próxima nota o item virá em branco de novo.</p>
+      )}
+
       {vinculando !== null && (
         <div className="mt-4 rounded-lg border border-border bg-surface-2/50 p-4">
           <div className="mb-3 text-sm font-medium">Vincular insumo ao item {vinculando}</div>
@@ -222,7 +260,11 @@ export function DetalheNfe({ nfe, fornecedor, onClose }: { nfe: NfeInbound; forn
               </Button>
             </div>
           </div>
-          <p className="mt-2 text-[12px] text-muted">O vínculo fica salvo para as próximas notas deste fornecedor.</p>
+          <p className="mt-2 text-[12px] text-muted">
+            {nfe.supplierId
+              ? 'O vínculo fica salvo para este fornecedor: na próxima nota, o item com o mesmo código já vem preenchido.'
+              : 'Esta nota não está ligada a um fornecedor cadastrado, então o vínculo vale só para ela.'}
+          </p>
         </div>
       )}
 

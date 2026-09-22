@@ -276,6 +276,22 @@ export class ConectorBaseLinker implements Conector {
     return resultados
   }
 
+  // Teste de conexão: getInventories é a chamada mais barata que exige token válido (uma página,
+  // sem catálogo, sem escrita) e ainda devolve algo que o dono reconhece na tela.
+  async testarConexao(): Promise<string> {
+    const r = await this.chamar<RespostaBL & { inventories?: { inventory_id: number; name?: string; is_default?: boolean }[] }>('getInventories')
+    const lista = r.inventories ?? []
+    if (lista.length === 0) return 'o BaseLinker aceitou o token, mas esta conta ainda não tem nenhum inventário (catálogo) criado'
+    const pedido = this.config.inventory_id
+    if (pedido !== undefined && pedido !== '') {
+      const alvo = lista.find((i) => String(i.inventory_id) === String(pedido))
+      if (!alvo) return `o BaseLinker aceitou o token, mas não existe o inventário ${pedido} nesta conta; use um destes: ${lista.map((i) => i.inventory_id).join(', ')}`
+      return `conectado ao BaseLinker: inventário "${alvo.name ?? alvo.inventory_id}" (id ${alvo.inventory_id})`
+    }
+    const padrao = lista.find((i) => i.is_default) ?? lista[0]
+    return `conectado ao BaseLinker: ${lista.length} inventário(s), usando "${padrao.name ?? padrao.inventory_id}" (id ${padrao.inventory_id})`
+  }
+
   async findInboundNfe(): Promise<typeof UNSUPPORTED> {
     return UNSUPPORTED
   }

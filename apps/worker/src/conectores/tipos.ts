@@ -83,6 +83,10 @@ export interface Conector {
   findInboundNfe(chave: string): Promise<NfeEncontrada | null | Unsupported>
   // Confere a assinatura do webhook a partir do corpo cru.
   verifyWebhook(req: Request, corpo: string): Promise<boolean | Unsupported>
+  // Uma chamada barata e somente-leitura que prova que a credencial funciona (POST /connectors/:id/test).
+  // Devolve uma frase para humano ("inventário X", "N produtos"), nunca a credencial. Opcional:
+  // adaptador que não implementa responde "teste indisponível" na rota.
+  testarConexao?(): Promise<string>
 }
 
 export class ErroConector extends Error {

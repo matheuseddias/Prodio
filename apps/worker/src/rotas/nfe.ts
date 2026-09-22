@@ -57,8 +57,14 @@ export async function rotaNfeXml(req: Request, env: Env, db = new Db(env)): Prom
     const payload = mapearNfe(parsed, 'upload', caminho)
     const r = await u.sb.rpc('upsert_nfe_inbound', { p_tenant_id: tenantId, p_nfe: payload.nfe, p_itens: payload.itens })
     if (r.error) {
-      const status = r.error.code === '42501' ? 403 : 422
-      return erro(status, r.error.message)
+      // Só os códigos que NÓS levantamos carregam texto escrito para o usuário: 42501 vem de
+      // assert_member e 22023 dos `raise exception` da própria RPC ("chave da NF-e inválida",
+      // "xml_path fora da pasta do tenant"). Qualquer outro código é o Postgres falando do lado de
+      // dentro — nome de função, coluna, constraint — e isso vai só para o log.
+      log('error', 'nfe.rpc', { tenant: tenantId, chave: parsed.chave, user: u.userId, codigo: r.error.code, erro: r.error.message })
+      if (r.error.code === '42501') return erro(403, 'você não tem permissão para registrar notas nesta empresa')
+      if (r.error.code === '22023') return erro(422, r.error.message)
+      return erro(422, 'não foi possível registrar esta nota; confira o XML e tente de novo')
     }
     try {
       await db.salvarXml(tenantId, parsed.chave, xml)

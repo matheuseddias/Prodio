@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useStore } from '../../domain/store'
 import type { Tenant } from '../../domain/types'
-import { Card, Input, Select, Toggle } from '../../ui'
+import { Card, Input, Toggle } from '../../ui'
 import PerfisEtiquetaEditor from './ConfigEtiquetas'
 import { mesclarPerfis, perfilInvalido } from './ConfigPerfis'
 import { Row, SaveBar } from './ConfigShared'
@@ -12,10 +12,7 @@ export default function ConfigProducao() {
   // Base de comparação: o tenant com um perfil para cada família que ainda não tem.
   const base = useMemo<Tenant>(() => ({ ...tenant, perfisEtiqueta: mesclarPerfis(tenant.perfisEtiqueta, familias) }), [tenant, familias])
   const [f, setF] = useState<Tenant>(base)
-  // Estado local: sem campo correspondente no Tenant
-  const [tamanho, setTamanho] = useState('50x30')
-  const [localDirty, setLocalDirty] = useState(false)
-  const dirty = localDirty || JSON.stringify(f) !== JSON.stringify(base)
+  const dirty = JSON.stringify(f) !== JSON.stringify(base)
   const invalidos = f.perfisEtiqueta.filter(perfilInvalido).length
 
   return (
@@ -42,31 +39,16 @@ export default function ConfigProducao() {
           label={f.exigirProjecaoParaImprimir ? 'Exigido' : 'Livre'}
         />
       </Row>
-      <Row label="Tamanho de etiqueta padrão" hint="Em mm, conforme a impressora térmica.">
-        <Select
-          value={tamanho}
-          onChange={(e) => {
-            setTamanho(e.target.value)
-            setLocalDirty(true)
-          }}
-          className="max-w-xs"
-        >
-          <option value="50x30">50 × 30 mm</option>
-          <option value="60x40">60 × 40 mm</option>
-          <option value="100x50">100 × 50 mm</option>
-          <option value="100x150">100 × 150 mm</option>
-        </Select>
-      </Row>
+      {/* "Tamanho de etiqueta padrão" saiu: não existe campo no Tenant nem coluna em `tenants` para
+          guardá-lo, e o Select só acendia o botão Salvar — o usuário ajustava, via "Salvo",
+          recarregava e estava 50 × 30 de novo. O tamanho sai do modelo da impressora térmica. */}
       <Row label="Etiquetas por família" hint="O serial começa com o prefixo da família. Cada família define quais etiquetas saem por peça; a de Produto é sempre gerada.">
         <PerfisEtiquetaEditor value={f.perfisEtiqueta} onChange={(perfisEtiqueta) => setF({ ...f, perfisEtiqueta })} />
       </Row>
       <SaveBar
         dirty={dirty && invalidos === 0}
         aviso={invalidos > 0 ? `${invalidos} ${invalidos === 1 ? 'família com perfil inválido' : 'famílias com perfil inválido'}` : undefined}
-        onSave={() => {
-          setTenant(f)
-          setLocalDirty(false)
-        }}
+        onSave={() => setTenant(f)}
       />
     </Card>
   )

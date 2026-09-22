@@ -1,5 +1,7 @@
-import { Loader2, RefreshCw, ShieldCheck } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { RefreshCw, ShieldCheck } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { lerUltimaAuditoria, type ExecucaoAuditor } from '../../data/conectores'
+import { mensagemErro } from '../../data/erros'
 import { dataHoraBR, horaBR, num, relativo } from '../../domain/format'
 import { useLookups, useStore } from '../../domain/store'
 import { Badge, Button, Card, EmptyState, Modal, Select, Table, Td, Th, cx } from '../../ui'
@@ -105,50 +107,64 @@ export function ConectorOutbox() {
 }
 
 // ---------- Auditor noturno ----------
-interface Divergencia {
-  productId: string
-  prodio: number
-  hub: number
-}
-
+//
+// As divergências vêm da última linha de `audit_runs`, gravada pelo cron diário do worker
+// (apps/worker/src/jobs/auditor.ts). Antes eram duas constantes no código, iguais para todo tenant
+// e sempre com aparência recente. Enquanto o auditor não tiver rodado, o cartão diz isso.
+//
+// "Corrigir no hub" saiu: não existe RPC de cliente que enfileire correção no integration_outbox
+// (enqueue_outbox é interna) nem rota no worker. O botão só apagava a linha da lista local.
 export function ConectorAuditor() {
   const { product } = useLookups()
-  const [divergencias, setDivergencias] = useState<Divergencia[]>([
-    { productId: 'p2', prodio: 148, hub: 128 },
-    { productId: 'p7', prodio: 312, hub: 307 },
-  ])
+  const { modo } = useStore()
   const [open, setOpen] = useState(false)
-  const [corrigindo, setCorrigindo] = useState<string | null>(null)
-  const [ultima] = useState(() => {
-    const d = new Date()
-    const agora = d.getTime()
-    d.setHours(3, 10, 0, 0)
-    if (d.getTime() > agora) d.setDate(d.getDate() - 1)
-    return d.toISOString()
-  })
+  const [execucao, setExecucao] = useState<ExecucaoAuditor | null>(null)
+  const [carregando, setCarregando] = useState(modo === 'supabase')
+  const [erro, setErro] = useState<string | null>(null)
 
-  const corrigir = (id: string) => {
-    setCorrigindo(id)
-    window.setTimeout(() => {
-      setDivergencias((l) => l.filter((x) => x.productId !== id))
-      setCorrigindo(null)
-    }, 800)
-  }
+  useEffect(() => {
+    if (modo !== 'supabase') return
+    let ativo = true
+    void lerUltimaAuditoria()
+      .then((e) => ativo && setExecucao(e))
+      .catch((e) => ativo && setErro(mensagemErro(e)))
+      .finally(() => ativo && setCarregando(false))
+    return () => {
+      ativo = false
+    }
+  }, [modo])
+
+  const divergencias = execucao?.divergencias ?? []
+  const nuncaRodou = !carregando && !erro && !execucao
 
   return (
     <>
       <Card title="Auditor noturno">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
-            <span className={cx('grid h-10 w-10 shrink-0 place-items-center rounded-lg', divergencias.length ? 'bg-warn-soft text-warn' : 'bg-ok-soft text-ok')}>
+            <span className={cx('grid h-10 w-10 shrink-0 place-items-center rounded-lg', divergencias.length ? 'bg-warn-soft text-warn' : nuncaRodou ? 'bg-surface-2 text-muted' : 'bg-ok-soft text-ok')}>
               <ShieldCheck size={20} />
             </span>
             <div>
               <div className="font-medium">
-                {divergencias.length === 0 ? 'Saldos conferem com o hub' : `${divergencias.length} SKUs com saldo diferente no hub`}
+                {carregando
+                  ? 'Lendo a última execução…'
+                  : erro
+                    ? 'Não foi possível ler as execuções do auditor'
+                    : nuncaRodou
+                      ? 'O auditor ainda não rodou'
+                      : divergencias.length === 0
+                        ? 'Saldos conferem com o hub'
+                        : `${divergencias.length} ${divergencias.length === 1 ? 'SKU com saldo diferente' : 'SKUs com saldo diferente'} no hub`}
               </div>
               <div className="text-[13px] text-muted">
-                Última execução {dataHoraBR(ultima)} · {relativo(ultima)} · comparou 11 SKUs em Base.com
+                {erro
+                  ? erro
+                  : execucao
+                    ? `Última execução ${dataHoraBR(execucao.em)} · ${relativo(execucao.em)}`
+                    : carregando
+                      ? '—'
+                      : 'Ele roda às 3h, pelo cron do worker. Nada aparece aqui até a primeira execução com um conector ativo.'}
               </div>
             </div>
           </div>
@@ -159,42 +175,42 @@ export function ConectorAuditor() {
           )}
         </div>
         <p className="mt-4 text-[13px] text-muted">
-          Roda todo dia após a virada: lê o saldo no hub, compara com o esperado a partir dos bipes e aponta o que divergir. Nada é alterado sem confirmação.
+          Roda todo dia após a virada: lê o saldo no hub, compara com o esperado a partir dos bipes e aponta o que divergir. Nada é alterado no hub por ele.
         </p>
       </Card>
 
       <Modal open={open} onClose={() => setOpen(false)} title="Divergências do auditor" footer={<Button onClick={() => setOpen(false)}>Fechar</Button>}>
         {divergencias.length === 0 ? (
-          <EmptyState title="Sem divergências" description="Todos os saldos foram corrigidos." />
+          <EmptyState title="Sem divergências" description="A última execução do auditor não encontrou diferença de saldo." />
         ) : (
           <div className="space-y-3">
+            <p className="text-[13px] text-muted">
+              Esperado = saldo do hub na execução anterior + o que foi bipado no dia. Corrigir o saldo no hub ainda é manual: ajuste na plataforma ou refaça o envio pelo outbox.
+            </p>
             {divergencias.map((d) => {
-              const p = product(d.productId)
-              const diff = d.prodio - d.hub
+              const p = product(d.product_id)
+              const diff = d.diferenca ?? 0
               return (
-                <div key={d.productId} className="rounded-lg border border-border p-3">
+                <div key={d.product_id} className="rounded-lg border border-border p-3">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
-                      <div className="truncate font-medium">{p?.nome}</div>
-                      <div className="font-mono text-[12px] text-muted">{p?.sku}</div>
+                      <div className="truncate font-medium">{p?.nome ?? d.sku}</div>
+                      <div className="font-mono text-[12px] text-muted">{p?.sku ?? d.sku}</div>
                     </div>
                     <div className="flex items-center gap-4 text-sm">
                       <div>
-                        <div className="text-[11px] uppercase tracking-wide text-muted">Prodio</div>
-                        <div className="font-semibold tabular-nums">{num(d.prodio)}</div>
+                        <div className="text-[11px] uppercase tracking-wide text-muted">Esperado</div>
+                        <div className="font-semibold tabular-nums">{d.esperado === null ? '—' : num(d.esperado)}</div>
                       </div>
                       <div>
                         <div className="text-[11px] uppercase tracking-wide text-muted">Hub</div>
-                        <div className="font-semibold tabular-nums">{num(d.hub)}</div>
+                        <div className="font-semibold tabular-nums">{num(d.saldo_hub)}</div>
                       </div>
-                      <Badge tone={diff > 0 ? 'warn' : 'danger'}>{diff > 0 ? `+${diff}` : diff}</Badge>
+                      <Badge tone={diff > 0 ? 'warn' : 'danger'}>{diff > 0 ? `+${num(diff)}` : num(diff)}</Badge>
                     </div>
                   </div>
-                  <div className="mt-3 flex justify-end">
-                    <Button size="sm" variant="primary" disabled={corrigindo === d.productId} onClick={() => corrigir(d.productId)}>
-                      {corrigindo === d.productId ? <Loader2 size={13} className="animate-spin" /> : null}
-                      Corrigir no hub
-                    </Button>
+                  <div className="mt-2 text-[12px] text-muted tabular-nums">
+                    Anterior no hub {d.saldo_anterior === null ? '—' : num(d.saldo_anterior)} · bipado no dia {num(d.bipado_hoje)}
                   </div>
                 </div>
               )

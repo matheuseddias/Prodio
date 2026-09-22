@@ -151,9 +151,10 @@ export const STATUS_PLATAFORMA: Record<Plataforma, { nome: string; padrao: Signi
   ],
 }
 
-/** SKUs externos vistos em pedidos e ainda sem produto no Prodio (simulação). */
-export const SKUS_SEM_DEPARA = ['ED000002-GRAF', 'MP-DESKPAD-CAR-90', 'ESP-ADNET-60-PTO', 'KIT-JOGO-AMER-4']
-
+/**
+ * Histórico de execuções da demonstração (modo memória). Com banco de verdade a tabela não aparece:
+ * não existe registro de execução de sync para ler, e execução inventada é pior que nenhuma.
+ */
 export const HISTORICO_SYNC = [
   { em: new Date(Date.now() - 12 * 60000).toISOString(), pedidos: 18, novos: 6, ms: 840, ok: true },
   { em: new Date(Date.now() - 27 * 60000).toISOString(), pedidos: 22, novos: 9, ms: 910, ok: true },

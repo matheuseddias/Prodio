@@ -15,4 +15,9 @@ export interface Env {
   TINY_CLIENT_SECRET?: string
   // URL pública do worker, usada no redirect_uri do OAuth (ex.: https://worker.prodio.app).
   PUBLIC_URL?: string
+  // Origens que o navegador pode usar para chamar as rotas de usuário, separadas por vírgula.
+  // Aceita origem exata e curinga de subdomínio (ex.: https://*.prodio-web.pages.dev, que cobre
+  // os endereços de preview do Cloudflare Pages). Vazio = só localhost de desenvolvimento.
+  // Ver src/cors.ts, README.md e docs/deploy-web.md.
+  CORS_ORIGENS?: string
 }

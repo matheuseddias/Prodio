@@ -6,6 +6,7 @@ import type { ConectorRow, Db, LoteOutbox } from '../db'
 import { montarConector } from '../conectores'
 import { ehUnsupported, type ResultadoPush } from '../conectores/tipos'
 import { log, mensagemErro } from '../log'
+import { desativarSeSemCredenciais } from './semCredenciais'
 import type { MontarConector } from './syncPedidos'
 
 export interface ResumoOutbox {
@@ -98,6 +99,8 @@ export async function aplicarOutbox(env: Env, db: Db, montar: MontarConector = (
       resumo.erros += p.erros
       resumo.devolvidos += p.devolvidos
     } catch (e) {
+      // Sem credencial nenhuma: desativa (o lote já voltou para 'pendente' e espera a reconexão).
+      if (await desativarSeSemCredenciais(row, db, e)) continue
       const erro = mensagemErro(e)
       log('error', 'outbox.falha', { connector: row.id, tenant: row.tenant_id, erro })
       try {

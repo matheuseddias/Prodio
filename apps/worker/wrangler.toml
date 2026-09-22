@@ -4,7 +4,9 @@ compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
 
 # Segredos (wrangler secret put): SUPABASE_URL, SUPABASE_SERVICE_KEY, SUPABASE_ANON_KEY, CREDENTIALS_KEY,
-# BLING_CLIENT_ID, BLING_CLIENT_SECRET, TINY_CLIENT_ID, TINY_CLIENT_SECRET. Ver README.md.
+# BLING_CLIENT_ID, BLING_CLIENT_SECRET, TINY_CLIENT_ID, TINY_CLIENT_SECRET, PUBLIC_URL, CORS_ORIGENS.
+# Ver README.md. Sem CORS_ORIGENS, só localhost chama o worker pelo navegador: a interface publicada
+# no Cloudflare Pages falha no preflight.
 # Service role só em cron, webhook e e-mail. Rotas acionadas por usuário (/nfe/xml, /connectors/*) usam
 # a anon key + o JWT do próprio usuário, então RLS e assert_member valem.
 

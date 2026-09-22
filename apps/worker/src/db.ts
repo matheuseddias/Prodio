@@ -123,6 +123,23 @@ export class Db {
     await this.rpc('worker_set_credentials', { p_tenant_id: tenantId, p_connector_id: connectorId, p_payload: payload, p_key: this.chave })
   }
 
+  // Status e ultimo_erro do conector, direto na tabela (service_role tem UPDATE em connectors).
+  // Não há RPC worker_* para isto: worker_set_sync_state só alterna entre 'conectado' e 'erro' e,
+  // de quebra, grava ultimo_sync e conta a rodada — fingiria uma sincronização que não houve.
+  // A RPC do cliente (disconnect_connector) exige membership e ainda apaga credencial e outbox.
+  // connectors não é ledger nem documento numerado (docs/arquitetura.md §2.3), então UPDATE direto
+  // aqui é legítimo; o que é crítico continua só em RPC.
+  // O tenant vai no filtro de propósito: o id chega de uma linha já autorizada (RLS na rota,
+  // listarConectoresAtivos no cron) e o par id+tenant garante que continua sendo aquela linha.
+  async marcarStatusConector(connectorId: string, tenantId: string, status: 'conectado' | 'erro' | 'desconectado', ultimoErro: string | null): Promise<void> {
+    const r = await this.sb
+      .from('connectors')
+      .update({ status, ultimo_erro: ultimoErro?.slice(0, 500) ?? null })
+      .eq('id', connectorId)
+      .eq('tenant_id', tenantId)
+    checar('marcarStatusConector', r)
+  }
+
   async getSyncState(connectorId: string): Promise<SyncStateRow | null> {
     const r = await this.sb.from('sync_state').select('connector_id, cursor, last_run_at, last_ok_at, runs').eq('connector_id', connectorId).maybeSingle()
     return checar<SyncStateRow | null>('getSyncState', r)

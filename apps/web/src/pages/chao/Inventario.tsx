@@ -4,18 +4,22 @@ import { useChaoSession } from '../../app/MobileShell'
 import { brl, dataBR, num, relativo } from '../../domain/format'
 import { useStore } from '../../domain/store'
 import { cx } from '../../ui'
-import { LOCAIS_CONTAGEM, casasDe, congelarItens, resumoSessao, sessoesExemplo, uid, unLabel, type SessaoInventario } from '../estoque/inventarioSessoes'
+import { casasDe, congelarItens, locaisDeContagem, resumoSessao, sessoesExemplo, uid, unLabel, type SessaoInventario } from '../estoque/inventarioSessoes'
 import InventarioSessao from './InventarioSessao'
 import { beepAviso } from './feedback'
 
-// Sessões em estado local desta tela (as mesmas de exemplo do Estoque › Inventário); o vínculo real fica para o backend.
+// A sessão vive no estado desta tela: as RPCs open/save/close_inventory_session existem no banco e
+// ainda não estão ligadas. Duas consequências que a tela precisa assumir em vez de esconder:
+// (1) com banco de verdade não se semeia nada — as sessões de exemplo eram de outra empresa;
+// (2) recarregar o app no meio da contagem perde o que foi contado, e isso é dito na tela.
 export default function Inventario() {
   const store = useStore()
   const { operador } = useChaoSession()
-  const [sessoes, setSessoes] = useState<SessaoInventario[]>(() => sessoesExemplo(store.materials))
+  const [sessoes, setSessoes] = useState<SessaoInventario[]>(() => (store.modo === 'memoria' ? sessoesExemplo(store.materials) : []))
   const [ativaId, setAtivaId] = useState<string | null>(null)
   const [fechada, setFechada] = useState<SessaoInventario | null>(null)
   const [novoLocal, setNovoLocal] = useState<string | null>(null)
+  const locais = locaisDeContagem(store.locations, store.modo)
 
   const salvar = (s: SessaoInventario) => setSessoes((l) => (l.some((x) => x.id === s.id) ? l.map((x) => (x.id === s.id ? s : x)) : [s, ...l]))
 
@@ -92,15 +96,27 @@ export default function Inventario() {
       <h1 className="pt-1 text-2xl font-semibold tracking-tight">Contagem</h1>
       <p className="text-[14px] text-slate-400">Conte por sessão; só o que divergir vira ajuste. Sobra aproveitável conta, quebra não.</p>
 
-      <button type="button" onClick={() => setNovoLocal(LOCAIS_CONTAGEM[0])} className="mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-teal-500 text-[16px] font-semibold text-slate-950 active:bg-teal-400">
+      {store.modo !== 'memoria' && (
+        <div className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[13px] text-amber-200">
+          A contagem fica só neste aparelho até você fechar a sessão. Se o app for recarregado no meio, ela se perde — feche a sessão antes de sair.
+        </div>
+      )}
+
+      <button
+        type="button"
+        disabled={locais.length === 0}
+        onClick={() => setNovoLocal(locais[0] ?? '')}
+        className="mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-teal-500 text-[16px] font-semibold text-slate-950 active:bg-teal-400 disabled:bg-slate-800 disabled:text-slate-500"
+      >
         <Plus size={20} /> Nova sessão
       </button>
+      {locais.length === 0 && <div className="mt-2 text-center text-[13px] text-slate-500">Nenhum local cadastrado nesta empresa. O escritório cadastra em Configurações › Locais.</div>}
 
       {novoLocal !== null && (
         <div className="mt-3 rounded-2xl border border-slate-800 bg-slate-900 p-3">
           <div className="px-1 text-[12px] uppercase tracking-wide text-slate-500">Onde você está?</div>
           <ul className="mt-2 space-y-1.5">
-            {LOCAIS_CONTAGEM.map((l) => (
+            {locais.map((l) => (
               <li key={l}>
                 <button type="button" onClick={() => criar(l)} className="flex min-h-14 w-full items-center justify-between rounded-xl border border-slate-800 bg-slate-950 px-4 text-left text-[15px] font-medium active:bg-slate-800">
                   {l} <ChevronRight size={18} className="text-slate-500" />

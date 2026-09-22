@@ -35,11 +35,18 @@ const ABC_TONE: Record<'A' | 'B' | 'C', Tone> = { A: 'accent', B: 'info', C: 'ne
 const casasDe = (m: Material) => (m.unidadeConsumo === 'un' ? 0 : 2)
 
 export default function Necessidade() {
-  const { materials, suppliers, boms, dailyPlan, purchaseOrders, tenant, createPurchaseOrder } = useStore()
+  const { materials, suppliers, boms, dailyPlan, purchaseOrders, tenant, createPurchaseOrder, setTenant } = useStore()
   const navigate = useNavigate()
   const [modo, setModo] = useState<Modo>('metrica')
   const [params, setParams] = useState<Params>({ periodoVendas: 30, margemPct: Math.round(tenant.margemProjecao * 100), diasCobertura: tenant.diasCobertura, diasUteis: tenant.diasUteisMes })
   const [editParams, setEditParams] = useState(false)
+  // Três dos quatro campos existem no Tenant e são os mesmos de Configurações › Produção. Antes
+  // "Aplicar" só fechava a janela: a sugestão de compra mudava na tela e voltava ao antigo na visita
+  // seguinte, sem aviso — e é desta tela que saem as OCs.
+  const aplicarParams = () => {
+    setTenant({ ...tenant, margemProjecao: params.margemPct / 100, diasCobertura: params.diasCobertura, diasUteisMes: params.diasUteis })
+    setEditParams(false)
+  }
   const [soComprar, setSoComprar] = useState(true)
   const [sel, setSel] = useState<Set<string>>(new Set())
   const [fechados, setFechados] = useState<Set<string>>(new Set())
@@ -356,10 +363,17 @@ export default function Necessidade() {
         onClose={() => setEditParams(false)}
         title="Parâmetros do cálculo"
         size="sm"
-        footer={<Button variant="primary" onClick={() => setEditParams(false)}>Aplicar</Button>}
+        footer={
+          <Button variant="primary" onClick={aplicarParams}>
+            Aplicar e salvar
+          </Button>
+        }
       >
+        <p className="mb-3 text-[13px] text-muted">
+          Margem, cobertura e dias úteis são da empresa: ao aplicar, ficam salvos e valem também em Configurações › Produção e na Linha de hoje.
+        </p>
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Período de vendas (dias)" hint="Base da projeção de demanda">
+          <Field label="Período de vendas (dias)" hint="Só nesta sessão: não é gravado na empresa.">
             <Input inputMode="numeric" value={params.periodoVendas} onChange={(e) => setParams((p) => ({ ...p, periodoVendas: Number(e.target.value) || 0 }))} />
           </Field>
           <Field label="Margem (%)" hint="Folga sobre a necessidade">

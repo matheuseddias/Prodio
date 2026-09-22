@@ -77,40 +77,48 @@ select '11111111-1111-1111-1111-111111111111', '0f000000-0000-0000-0000-00000000
    and not exists (select 1 from public.receipt_items r where r.receipt_id = '0f000000-0000-0000-0000-000000000001');
 
 -- ---------------------------------------------------------------------------
--- Conectores: BaseLinker conectado (config + mapa de status + sync_state + outbox + hub + auditoria); os demais desconectados.
+-- Conectores: TODOS nascem desconectados, sem credencial e sem último sync.
+--
+-- Por quê: credencial é cifrada com a CREDENTIALS_KEY do worker (connector_credentials) e não pode ser
+-- semeada. Um conector semeado como 'conectado' é um conector fantasma: a tela promete uma integração
+-- que não existe e, assim que o worker subir, o cron tenta usar uma credencial ausente e falha de 5 em
+-- 5 minutos. Um conector só fica 'conectado' depois de alguém conectar pela tela — é o worker, em
+-- POST /connectors/:id/credentials ou no callback do OAuth, quem grava a credencial e o status.
+--
+-- Pela mesma razão saíram daqui e NÃO voltam ao seed:
+--   · connectors.ultimo_sync e config.pedidos_24h — contam uma sincronização que nunca rodou
+--     (a tela chegava a mostrar "412 pedidos em 24h" de uma integração inexistente);
+--   · sync_state — além de mentir sobre execuções, o cursor semeado (date_confirmed_from = agora)
+--     faria a primeira coleta real começar do zero e pular todo o histórico da conta;
+--   · integration_outbox — o worker reivindicaria esses itens no primeiro ciclo e tentaria empurrar
+--     saldo para um inventário inventado;
+--   · hub_stock_snapshots e audit_runs — são a resposta da plataforma e a conferência diária;
+--     saldo de hub inventado entra direto na projeção e vira sugestão de compra errada;
+--   · config.inventory_id / warehouse_id — o adaptador do BaseLinker lê esses dois de connectors.config
+--     e usaria o inventário 24384 semeado na conta real do cliente, escrevendo saldo no inventário
+--     errado; quem informa os dois é o usuário, na hora de conectar;
+--   · connector_status_map — o mais perigoso da lista. BaseLinker, Tiny e Bling devolvem o status como
+--     código da conta ('1', '2', …), nunca como 'new'/'paid'/'confirmed'. Com um mapa preenchido que
+--     não casa com nada, worker_upsert_orders vê que existe mapa, não acha o status e grava significado
+--     nulo: o pedido entra no banco e some da demanda, em silêncio. Sem mapa, todo pedido vira
+--     'demanda' — errado para menos, mas visível. O De-Para certo é cadastrado por tenant depois de
+--     conectar, pela RPC set_status_map.
+--
+-- O que fica: os pedidos de exemplo (orders/order_items, external_id 'seed:bl:…', raw.seed = true).
+-- Eles são histórico de venda que alimenta projeção e necessidade de compra; dizem "estas vendas
+-- aconteceram", não "a integração está no ar". Envelhecem sozinhos, porque as telas olham 7/14/30 dias.
+-- Antes de operar com dados reais, limpar_exemplo.sql apaga pedidos, conectores e o resto do exemplo.
 -- ---------------------------------------------------------------------------
 insert into public.connectors (id, tenant_id, plataforma, nome, status, config, ultimo_sync) values
-  ('0d000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'baselinker', 'Base.com (BaseLinker)', 'conectado', '{"inventory_id": 24384, "warehouse_id": "bl_1", "push_estoque": true, "modo_estoque": "delta", "dry_run": false, "intervalo_min": 5, "pedidos_24h": 412}', now() - interval '4 minutes'),
+  ('0d000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'baselinker', 'Base.com (BaseLinker)', 'desconectado', '{"push_estoque": true}', null),
   ('0d000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'bling', 'Bling', 'desconectado', '{"push_estoque": true}', null),
   ('0d000000-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111', 'tiny', 'Tiny / Olist', 'desconectado', '{"push_estoque": true}', null),
   ('0d000000-0000-0000-0000-000000000004', '11111111-1111-1111-1111-111111111111', 'omie', 'Omie', 'desconectado', '{"push_estoque": true}', null),
   ('0d000000-0000-0000-0000-000000000005', '11111111-1111-1111-1111-111111111111', 'magis5', 'Magis5', 'desconectado', '{"push_estoque": false}', null)
 on conflict (id) do nothing;
 
-insert into public.connector_status_map (tenant_id, connector_id, status_externo, significado) values
-  ('11111111-1111-1111-1111-111111111111', '0d000000-0000-0000-0000-000000000001', 'new', 'demanda'),
-  ('11111111-1111-1111-1111-111111111111', '0d000000-0000-0000-0000-000000000001', 'paid', 'demanda'),
-  ('11111111-1111-1111-1111-111111111111', '0d000000-0000-0000-0000-000000000001', 'confirmed', 'carteira'),
-  ('11111111-1111-1111-1111-111111111111', '0d000000-0000-0000-0000-000000000001', 'packed', 'carteira'),
-  ('11111111-1111-1111-1111-111111111111', '0d000000-0000-0000-0000-000000000001', 'shipped', 'enviado'),
-  ('11111111-1111-1111-1111-111111111111', '0d000000-0000-0000-0000-000000000001', 'delivered', 'enviado'),
-  ('11111111-1111-1111-1111-111111111111', '0d000000-0000-0000-0000-000000000001', 'cancelled', 'cancelado'),
-  ('11111111-1111-1111-1111-111111111111', '0d000000-0000-0000-0000-000000000001', 'returned', 'ignorar')
-on conflict do nothing;
-
-insert into public.sync_state (connector_id, tenant_id, cursor, last_run_at, last_ok_at, runs)
-values ('0d000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', jsonb_build_object('date_confirmed_from', extract(epoch from now() - interval '10 minutes')::bigint), now() - interval '4 minutes', now() - interval '4 minutes', 288)
-on conflict (connector_id) do nothing;
-
-insert into public.integration_outbox (tenant_id, connector_id, product_id, delta, dedupe_key, status, erro, tentativas, created_at, applied_at) values
-  ('11111111-1111-1111-1111-111111111111', '0d000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 12, 'seed:ob1', 'pendente', null, 0, now() - interval '25 minutes', null),
-  ('11111111-1111-1111-1111-111111111111', '0d000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000003', 3, 'seed:ob2', 'pendente', null, 0, now() - interval '24 minutes', null),
-  ('11111111-1111-1111-1111-111111111111', '0d000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000005', 8, 'seed:ob3', 'pendente', null, 0, now() - interval '23 minutes', null),
-  ('11111111-1111-1111-1111-111111111111', '0d000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002', 20, 'seed:ob4', 'aplicado', null, 1, now() - interval '90 minutes', now() - interval '85 minutes'),
-  ('11111111-1111-1111-1111-111111111111', '0d000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000007', 5, 'seed:ob5', 'erro', 'SKU não encontrado no inventário 24384', 1, now() - interval '2 hours', null)
-on conflict (tenant_id, connector_id, dedupe_key) do nothing;
-
 -- Pedidos dos últimos 14 dias (1 por dia; os 2 mais recentes ainda em carteira) com itens dos principais SKUs.
+-- significado vem fixo aqui: são dados de exemplo, não passaram pelo connector_status_map de ninguém.
 insert into public.orders (tenant_id, connector_id, external_id, external_status, significado, confirmed_at, updated_at_external, total, raw)
 select '11111111-1111-1111-1111-111111111111', '0d000000-0000-0000-0000-000000000001', 'seed:bl:' || d,
        case when d < 2 then 'confirmed' else 'paid' end, case when d < 2 then 'carteira' else 'demanda' end,
@@ -126,16 +134,8 @@ select o.tenant_id, o.id, x.sku, p.id, x.qtd + (extract(day from o.confirmed_at)
  where o.tenant_id = '11111111-1111-1111-1111-111111111111' and o.external_id like 'seed:bl:%'
    and not exists (select 1 from public.order_items i where i.order_id = o.id);
 
-insert into public.hub_stock_snapshots (tenant_id, connector_id, product_id, saldo_hub, capturado_em)
-select '11111111-1111-1111-1111-111111111111', '0d000000-0000-0000-0000-000000000001', p.id, x.saldo, now() - interval '6 hours'
-  from (values ('TM000076', 212), ('TM000073', 96), ('TM000079', 14), ('TM000091', 140), ('ED000001', 388), ('ED000008', 120), ('ED000002', 77), ('ED000010', 260)) as x(sku, saldo)
-  join public.products p on p.tenant_id = '11111111-1111-1111-1111-111111111111' and p.sku = x.sku
-on conflict (tenant_id, connector_id, product_id) do nothing;
-
-insert into public.audit_runs (id, tenant_id, connector_id, executado_em, divergencias) values
-  ('0d100000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', '0d000000-0000-0000-0000-000000000001', now() - interval '6 hours',
-   '[{"sku": "ED000002", "product_id": "a0000000-0000-0000-0000-000000000007", "saldo_hub": 77, "saldo_anterior": 80, "bipado_hoje": 2, "esperado": 82, "diferenca": -5}]')
-on conflict (id) do nothing;
+-- hub_stock_snapshots e audit_runs não são semeados de propósito: só o worker os escreve, lendo a
+-- plataforma de verdade (worker_upsert_hub_stock / worker_record_audit). Ver a explicação acima.
 
 -- ---------------------------------------------------------------------------
 -- Canais de venda e preços por canal (percentuais em fração)
@@ -189,7 +189,7 @@ insert into public.notifications (id, tenant_id, tipo, texto, lida, created_at) 
   ('09000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'minimo', 'Caixa embalagem espelho 50cm cruzou o mínimo (140 de 200)', false, now() - interval '1 day'),
   ('09000000-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111', 'oc_atrasada', 'OC 1039 (Montana) atrasada há 2 dias, 1 de 3 rolos recebidos', false, now() - interval '1 day 4 hours'),
   ('09000000-0000-0000-0000-000000000004', '11111111-1111-1111-1111-111111111111', 'nfe', 'NF-e 774 (Montana) tem 1 item sem De-Para', true, now() - interval '2 days'),
-  ('09000000-0000-0000-0000-000000000005', '11111111-1111-1111-1111-111111111111', 'conector', 'Base.com: 1 item do outbox com erro (SKU ED000002)', false, now() - interval '2 hours'),
+  ('09000000-0000-0000-0000-000000000005', '11111111-1111-1111-1111-111111111111', 'conector', 'Base.com está desconectada: conecte em Configurações > Conectores para importar pedidos e enviar estoque', false, now() - interval '2 hours'),
   ('09000000-0000-0000-0000-000000000006', '11111111-1111-1111-1111-111111111111', 'cadastro', 'Espelho Orgânico Nuvem 50cm vendeu 34 un e não tem ficha', true, now() - interval '5 hours'),
   ('09000000-0000-0000-0000-000000000007', '11111111-1111-1111-1111-111111111111', 'inventario', 'Inventário do Galpão Vila Galvão fechado com 1 ajuste', true, now() - interval '7 days')
 on conflict (id) do nothing;

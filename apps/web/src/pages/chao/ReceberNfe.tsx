@@ -1,6 +1,8 @@
 import { ArrowLeft, Check, FileQuestion, Link2, Plus } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useAuth } from '../../app/auth'
+import { lerDeParaFornecedor, salvarDeParaFornecedor, type VinculoFornecedor } from '../../data/deParaFornecedor'
 import { brl, chaveFmt, dataBR } from '../../domain/format'
 import { useLookups, useStore } from '../../domain/store'
 import type { NfeInbound, NfeItem, PurchaseOrder } from '../../domain/types'
@@ -44,11 +46,26 @@ export default function ReceberNfe() {
 function Conferencia({ nfe }: { nfe: NfeInbound }) {
   const store = useStore()
   const { material, supplier } = useLookups()
+  const { tenantId } = useAuth()
   const nav = useNavigate()
   const [itens, setItens] = useState<ItemConf[]>(() => nfe.itens.map((i) => ({ ...i })))
   const [poIds, setPoIds] = useState<string[]>(nfe.poIds)
   const [folha, setFolha] = useState<null | { tipo: 'vincular'; nItem: number } | { tipo: 'oc' }>(null)
   const [resumo, setResumo] = useState<Resumo | null>(null)
+  // De-Para deste fornecedor (supplier_materials): pré-preenche o item e recebe o vínculo novo.
+  // Sem rede a gravação falha — e aí a tela avisa que o vínculo vale só para esta nota.
+  const [depara, setDepara] = useState<Record<string, VinculoFornecedor>>({})
+  const [deparaFalhou, setDeparaFalhou] = useState(false)
+
+  useEffect(() => {
+    let ativo = true
+    void lerDeParaFornecedor(nfe.supplierId)
+      .then((d) => ativo && setDepara(d))
+      .catch(() => {})
+    return () => {
+      ativo = false
+    }
+  }, [nfe.supplierId])
 
   const ocsLigadas = store.purchaseOrders.filter((po) => poIds.includes(po.id))
   const ocsDisponiveis = store.purchaseOrders.filter((po) => !poIds.includes(po.id) && (po.status === 'aberta' || po.status === 'parcial'))
@@ -156,18 +173,27 @@ function Conferencia({ nfe }: { nfe: NfeInbound }) {
           <Check size={24} /> Confirmar recebimento
         </button>
         {!pronto && <div className="mt-1 text-center text-[12px] text-amber-300">Falta De-Para ou classificação em algum item.</div>}
+        {deparaFalhou && <div className="mt-1 text-center text-[12px] text-amber-300">O De-Para vale para esta nota, mas não foi guardado para o fornecedor (sem rede?).</div>}
       </div>
 
       {folha?.tipo === 'vincular' && (
         <VincularInsumoSheet
           item={itens.find((i) => i.nItem === folha.nItem)!}
           fornecedor={nfe.emitente}
+          sugestao={depara[(itens.find((i) => i.nItem === folha.nItem)?.cProd ?? '').trim()]}
+          guarda={!!nfe.supplierId}
           onClose={() => setFolha(null)}
           onPick={(materialId, fator) => {
             const it = itens.find((i) => i.nItem === folha.nItem)!
             setItem(folha.nItem, { materialId, fator, qtdConsumo: Math.round(it.qCom * fator * 1000) / 1000, classe: it.classe ?? (cfopInfo(it.cfop).auto ? undefined : 'entra') })
             setFolha(null)
             beepOk()
+            void salvarDeParaFornecedor(tenantId, { supplierId: nfe.supplierId, codigo: it.cProd, materialId, fator, unidadeCompra: it.uCom })
+              .then((ok) => {
+                if (ok) setDepara((d) => ({ ...d, [it.cProd.trim()]: { materialId, fator } }))
+                else if (nfe.supplierId) setDeparaFalhou(true)
+              })
+              .catch(() => setDeparaFalhou(true))
           }}
         />
       )}
