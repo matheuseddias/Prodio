@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { dataBR, diaProducao, num, pct } from '../../domain/format'
 import { comHoje, semProducao, ultimosDias } from '../../domain/historico'
 import { useStore } from '../../domain/store'
-import { Card, EmptyState, Stat, cx } from '../../ui'
+import { Badge, Card, EmptyState, Stat, cx } from '../../ui'
 import { AderenciaLine, GroupedBars, HourHistogram } from './charts'
 import { Fechamentos, TabelaOperadores, TabelaSkus } from './ProdutividadeTabelas'
 import { HORAS_TURNO, PERIODOS, aderenciaDe, bipesDoDia, gargaloDe, porHoraDe, porOperador, porSku, resumoPeriodo, toneAderencia, type Periodo } from './produtividadeUtils'
@@ -48,8 +48,10 @@ export function Produtividade() {
         </p>
         <div className="flex items-center gap-3 shrink-0">
           {s.historico.exemplo && (
-            <span className="text-[12px] text-faint inline-flex items-center gap-1" title="Modo de demonstração, sem banco: os dias anteriores a hoje são um padrão semanal de exemplo.">
-              <Info size={12} /> histórico de exemplo
+            <span title="Modo de demonstração, sem banco: os dias anteriores a hoje são um padrão semanal de exemplo.">
+              <Badge tone="warn">
+                <Info size={12} /> dados de exemplo
+              </Badge>
             </span>
           )}
           {s.historico.truncada.producao && (
@@ -138,7 +140,7 @@ export function Produtividade() {
         <TabelaSkus linhas={skus} />
       </div>
 
-      <Fechamentos historico={historico} periodo={periodo} />
+      <Fechamentos historico={vazio ? [] : historico} periodo={periodo} />
     </div>
   )
 }

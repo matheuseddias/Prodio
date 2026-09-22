@@ -58,8 +58,8 @@ export default function Painel() {
     [s.historico.producao, s.tenant.horaVirada, projetado, produzido],
   )
   const vendas14 = useMemo(() => ultimosDias(s.historico.vendas, 14), [s.historico.vendas])
-  const exemplo = s.historico.exemplo
-  const marcaExemplo = exemplo ? <Badge>exemplo</Badge> : null
+  // Sem banco (modo demonstração) o gráfico é ilustrativo e tem de dizer isso sem margem a dúvida.
+  const marcaExemplo = s.historico.exemplo ? <Badge tone="warn">dados de exemplo</Badge> : null
 
   return (
     <>

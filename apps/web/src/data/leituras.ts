@@ -160,10 +160,20 @@ const LIMITE_LINHAS = 5000
 
 export async function lerHistorico(ctx: Ctx): Promise<Historico> {
   const [producao, vendas] = await Promise.all([
-    tolerante(lerHistoricoProducao(ctx), { dias: [] as Historico['producao'], truncada: false }),
-    tolerante(lerHistoricoVendas(ctx), { dias: [] as Historico['vendas'], truncada: false }),
+    semQuebrar(lerHistoricoProducao(ctx), 'histórico de produção'),
+    semQuebrar(lerHistoricoVendas(ctx), 'histórico de vendas'),
   ])
   return { producao: producao.dias, vendas: vendas.dias, exemplo: false, truncada: { producao: producao.truncada, vendas: vendas.truncada } }
+}
+
+/** Gráfico que não carrega não pode derrubar o Painel inteiro: vira série vazia e fica o aviso no console. */
+async function semQuebrar<T>(p: Promise<{ dias: T[]; truncada: boolean }>, oque: string): Promise<{ dias: T[]; truncada: boolean }> {
+  try {
+    return await p
+  } catch (e) {
+    console.warn(`[prodio] ${oque} indisponível:`, (e as Error)?.message ?? e)
+    return { dias: [], truncada: false }
+  }
 }
 
 /** Projetado e bipado por dia, de v_daily_plan. O eixo é o dia de produção (respeita a hora de virada). */
