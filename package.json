@@ -11,7 +11,7 @@
     "test": "pnpm -r test",
     "db:test": "bash supabase/tests/run.sh",
     "deploy:web": "pnpm --filter @prodio/web deploy:pages",
-    "deploy:worker": "pnpm --filter @prodio/worker deploy"
+    "deploy:worker": "pnpm --filter @prodio/worker deploy:workers"
   },
   "devDependencies": {
     "typescript": "~6.0.2"

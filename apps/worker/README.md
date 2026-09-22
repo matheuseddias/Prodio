@@ -85,7 +85,7 @@ pnpm --filter @prodio/worker dev     # wrangler dev (crons: wrangler dev --test-
 pnpm --filter @prodio/worker build   # tsc --noEmit
 pnpm --filter @prodio/worker lint    # oxlint
 pnpm --filter @prodio/worker test    # vitest (fetch mockado, sem rede)
-pnpm --filter @prodio/worker deploy
+pnpm deploy:worker
 ```
 
 ## Rotas

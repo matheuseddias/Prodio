@@ -9,7 +9,7 @@
     "build": "tsc --noEmit",
     "lint": "oxlint",
     "test": "vitest run --passWithNoTests",
-    "deploy": "wrangler deploy"
+    "deploy:workers": "wrangler deploy"
   },
   "dependencies": {
     "@prodio/core": "workspace:*",
