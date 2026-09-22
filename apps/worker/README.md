@@ -62,39 +62,48 @@ Erro em um conector grava `ultimo_erro` via `worker_set_sync_state(id, null, fal
 
 BaseLinker: `updateInventoryProductsStock` é absoluto. O adaptador lê `getInventoryProductsStock` antes, soma o delta e grava, um produto por chamada. Precisa de `config.warehouse_id` (ex.: `bl_1234`) e opcionalmente `inventory_id`.
 Bling: `POST /estoques` é por delta (`E`/`S`). Precisa de `config.deposito_id`.
-Tiny: `POST /estoque/{idProduto}` é por delta (`tipo` `E`/`S`). `config.deposito_id` é opcional — sem ele o Tiny lança no depósito padrão da conta. O Tiny não tem busca de produto por lote de SKU: até 25 SKUs o adaptador resolve um a um (`GET /produtos?codigo=<sku>&limit=1`); acima disso lê o catálogo inteiro paginado e guarda o de-para em memória pelo tempo do job.
+Tiny: `POST /estoque/{idProduto}` é por delta (`tipo` `E`/`S`). `config.deposito_id` é opcional — sem ele o Tiny lança no depósito padrão da conta. O Tiny não tem busca de produto por lote de SKU: até 25 SKUs o adaptador resolve um a um (`GET /produtos?codigo=<sku>&limit=1`); acima disso lê o catálogo inteiro paginado e guarda o de-para em memória pelo tempo do job. Movimento de estoque **não é repetido automaticamente** em 5xx nem em queda de rede (`repetivel: false` no cliente HTTP): a chamada pode ter sido aplicada do outro lado e repetir dobraria o saldo. Só 429, que é recusa garantida, é repetido.
 
 ## Config do conector (`connectors.config`)
 
-`{ push_estoque: bool, dry_run: bool, dias_iniciais: 3, inventory_id, warehouse_id (BaseLinker), deposito_id (Bling e Tiny), dias_nfe: 60 (Tiny) }`.
+`{ push_estoque: bool, dry_run: bool, dias_iniciais: 3, inventory_id, warehouse_id (BaseLinker), deposito_id (Bling e Tiny), dias_nfe: 60 (Tiny), max_pedidos: 150 (Tiny), max_produtos: 250 (Tiny) }`.
+
+`max_pedidos` e `max_produtos` são tetos **por execução** do Tiny: cada detalhe de pedido e cada saldo custa uma chamada a 1,1 s, e o cron de pedidos roda de 5 em 5 min. Sem teto, uma primeira carga grande estoura a janela, morre no meio e o cursor nunca avança — o conector ficaria parado para sempre. Quando o teto corta a fila, o adaptador processa os pedidos mais antigos primeiro e devolve o cursor só até onde chegou (`tiny.pullOrders.teto` no log); a rodada seguinte continua de lá.
 
 ## Tiny (Olist) — validar os endpoints antes do primeiro uso em produção
 
 O adaptador (`src/conectores/tiny.ts`) fala a **API v3** do Tiny, autenticada por OAuth2 sobre
 Keycloak (`accounts.tiny.com.br/realms/tiny`). Access token ~4 h; refresh ~24 h e **rotativo**:
 cada renovação invalida o refresh anterior, por isso o novo par é persistido na hora
-(`worker_set_credentials`). Se o cliente ficar mais de um dia sem sync, o refresh morre e a tela
-precisa mandar o admin reautorizar (`codigo: 'reauth'` no `ErroConector`). A v3 **não tem
-webhooks**: `verifyWebhook` devolve `unsupported` e os pedidos vêm só por polling do cron.
+(`worker_set_credentials`). Três cuidados que vêm daí, todos cobertos por teste:
 
-> **Pendência conhecida.** Os caminhos de endpoint, nomes de parâmetro e nomes de campo foram
-> montados a partir da documentação pública e de integrações abertas — a rede da máquina onde o
-> adaptador foi escrito **não alcança `tiny.com.br` nem o portal de documentação**, então nada
-> disso foi conferido contra uma conta real. Antes do primeiro sync em produção, rode a checagem
-> abaixo com credenciais do cliente. Tudo o que precisa de conserto está em **um arquivo só**:
-> `src/conectores/tinyMapa.ts` (objeto `MAPA_TINY` + as interfaces de payload logo abaixo dele).
-> `tiny.ts` nunca escreve um caminho ou um nome de campo na mão.
+- resposta de token sem `refresh_token` novo **não apaga** o que está gravado (`mesclarCredenciaisTiny`);
+- antes de renovar, o adaptador **relê as credenciais** do banco e adota o par mais novo: duas
+  execuções do cron renovando juntas queimariam uma o token da outra;
+- quando não há mais o que fazer sem o dono (refresh vencido, `invalid_grant`, 401 depois de
+  renovar), o erro sai com `codigo: 'reauth'` e a mensagem "reconecte o Tiny em Sistema ›
+  Conectores" — é o texto que a tela deve mostrar.
+
+A v3 **não tem webhooks**: `verifyWebhook` devolve `unsupported` e os pedidos vêm só por polling do cron.
+
+> **Pendência conhecida.** A rede da máquina onde o adaptador foi escrito **não alcança
+> `tiny.com.br` nem o portal de documentação**, então nada foi exercitado contra uma conta real.
+> O mapa foi conferido linha a linha contra o swagger da v3 e contra integrações abertas em
+> produção (ver a coluna "situação"), mas a primeira conexão de verdade ainda é o teste.
+> Tudo o que precisa de conserto está em **um arquivo só**: `src/conectores/tinyMapa.ts`
+> (objeto `MAPA_TINY` + as interfaces de payload logo abaixo dele). `tiny.ts` nunca escreve um
+> caminho ou um nome de campo na mão.
 
 O que conferir, com `Authorization: Bearer <access_token>` e base `https://api.tiny.com.br/public-api/v3`:
 
-| Uso no Prodio | Chamada esperada | Confira |
+| Uso no Prodio | Chamada esperada | Situação |
 | --- | --- | --- |
-| `pullOrders` | `GET /pedidos?dataAtualizacao=AAAA-MM-DD&limit=100&offset=0` | o nome do filtro incremental (`dataAtualizacao`), o formato da data e o envelope `{itens, paginacao}`. |
-| `pullOrders` / `pullOrder` | `GET /pedidos/{id}` | onde está o SKU do item (`itens[].produto.sku`? `itens[].codigo`?), `valorUnitario` vs `valor`, e o campo de valor total (`valorTotalPedido`). |
-| `pullCatalog` | `GET /produtos?limit=100&offset=0` | se o SKU vem em `sku` ou `codigo`, e o nome do produto (`descricao`). |
-| `pullFinishedStock` | `GET /estoque/{idProduto}` | `saldo`, `disponivel` e o formato de `depositos[]` (o depósito vem plano ou aninhado em `deposito`?). |
-| `pushFinishedStock` | `POST /estoque/{idProduto}` com `{tipo:'E'\|'S', quantidade, deposito:{id}, observacoes}` | os nomes do corpo e se `tipo` aceita mesmo `E`/`S` (há também `B`, de balanço/absoluto). |
-| `findInboundNfe` | `GET /notas?tipo=E&dataInicial&dataFinal` → `GET /notas/{id}` → `GET /notas/{id}/xml` | se a listagem traz `chaveAcesso` (é por ela que o Prodio casa a nota, já que a v3 não filtra por chave) e em que formato o XML volta (cru, `{xml}` ou base64 — os três já são tratados). |
+| `pullOrders` | `GET /pedidos?dataAtualizacao=AAAA-MM-DD&limit=100&offset=0` | **conferido** contra o swagger e duas integrações em produção: `dataAtualizacao` existe e aceita **só data pura** (com hora a v3 responde 400); envelope `{itens, paginacao}`; `limit`/`offset`. |
+| `pullOrders` / `pullOrder` | `GET /pedidos/{id}` | **conferido**: `itens[].produto.{id,sku,descricao}`, `quantidade`, `valorUnitario`, `valorTotalPedido`/`valorTotalProdutos`, `situacao` numérica. |
+| `pullCatalog` | `GET /produtos?limit=100&offset=0` | **conferido**: SKU volta em `sku` e o filtro por SKU é `codigo`. |
+| `pullFinishedStock` | `GET /estoque/{idProduto}` | **conferido**: `saldo`, `reservado` e `depositos[].{id,nome,saldo}` (há integração que também lê `depositos[].deposito.id` — os dois formatos são tratados). Resposta sem saldo nenhum é **pulada**, não vira zero. |
+| `pushFinishedStock` | `POST /estoque/{idProduto}` com `{tipo:'E'\|'S', quantidade, deposito:{id}, observacoes}` | **conferido** (`tipo` aceita `E`, `S` e `B`, de balanço/absoluto). Confirme o depósito antes de tirar o `dry_run`. |
+| `findInboundNfe` | `GET /notas?tipo=E&dataInicial&dataFinal` → `GET /notas/{id}` → `GET /notas/{id}/xml` | **parcial**: `dataInicial`/`dataFinal` (AAAA-MM-DD) e `chaveAcesso`/`tipo`/`numero`/`serie` no detalhe estão conferidos; **falta confirmar** se o filtro `tipo` vale na listagem, se a listagem devolve `chaveAcesso` (é por ela que o Prodio casa a nota) e o formato de `/notas/{id}/xml` (cru, `{xml}` ou base64 — os três são tratados). |
 
 Um jeito rápido de validar tudo de uma vez é apontar o `ClienteHttp` para a conta real num script
 de scratch e rodar `pullCatalog()` → `pullFinishedStock([sku])` → `pushFinishedStock([...], {dryRun:true})`
@@ -130,7 +139,7 @@ src/env.ts              tipagem das variáveis
 src/http.ts             cliente HTTP: fila por conta, backoff em 429/5xx, log
 src/db.ts               Supabase (service role) + cliente do usuário; RPCs worker_*
 src/conectores/tipos.ts interface Conector e PedidoNormalizado
-src/conectores/baselinker.ts, bling.ts, tiny.ts + tinyMapa.ts, index.ts (fábrica)
+src/conectores/baselinker.ts, bling.ts, tiny.ts (+ tinyMapa.ts, tinyAuth.ts, tinyNfe.ts), index.ts (fábrica)
 src/jobs/syncPedidos.ts, aplicarOutbox.ts, auditor.ts
 src/rotas/webhooks.ts, nfe.ts, credenciais.ts, util.ts
 src/email.ts, src/zip.ts, src/nfe-mapa.ts, src/cron.ts

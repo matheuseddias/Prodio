@@ -5,15 +5,24 @@
 // de MAPA_TINY ou das interfaces deste arquivo.
 //
 // ATENÇÃO — VALIDAR ANTES DE USAR EM PRODUÇÃO
-// Este mapa foi montado a partir da documentação pública da API v3
-// (api-docs.erp.olist.com / erp.olist.com/public-api/v3/swagger) e de
-// integrações abertas. A rede desta máquina não alcança tiny.com.br nem o
-// portal de documentação, então NADA aqui foi conferido contra uma conta real.
-// Antes do primeiro sync de verdade, confira cada linha com credenciais do
-// cliente (ver "Tiny (Olist)" no README do worker). Se um endpoint estiver
-// errado, o conserto é neste arquivo e só nele.
+// A rede desta máquina não alcança tiny.com.br nem o portal de documentação,
+// então nada aqui foi exercitado contra uma conta real. O que foi conferido
+// contra o swagger da v3 e integrações abertas (ver README do worker):
+//   base https://api.tiny.com.br/public-api/v3; Keycloak realm "tiny";
+//   GET /pedidos?dataAtualizacao=AAAA-MM-DD&limit&offset (só data pura: com
+//     hora a v3 responde 400) e envelope {itens, paginacao};
+//   GET /pedidos/{id} com itens[].produto.{id,sku,descricao}, quantidade,
+//     valorUnitario, valorTotalPedido, valorTotalProdutos, situacao;
+//   GET /produtos?codigo=<sku>&limit&offset (SKU volta em "sku");
+//   GET /estoque/{id} com saldo, reservado e depositos[].{id,nome,saldo};
+//   POST /estoque/{id} com {tipo:'E'|'S'|'B', quantidade, deposito:{id}};
+//   GET /notas?dataInicial&dataFinal e GET /notas/{id} com chaveAcesso,
+//     tipo (E/S), numero, serie, dataEmissao.
+// Continua por confirmar: o filtro `tipo` na LISTAGEM de notas, se a listagem
+// devolve `chaveAcesso` (o detalhe devolve) e o formato de /notas/{id}/xml.
+// Se algo estiver errado, o conserto é neste arquivo e só nele.
 // ---------------------------------------------------------------------------
-import { numero, type ItemCatalogo, type PedidoNormalizado } from './tipos'
+import { ErroConector, numero, type ItemCatalogo, type PedidoNormalizado } from './tipos'
 
 export const MAPA_TINY = {
   // Base da API v3. Há relatos de `https://erp.tiny.com.br/public-api/v3` como
@@ -72,11 +81,11 @@ export interface PedidoTinyLista {
   numeroPedido?: number | string
   situacao?: number | string
   dataAtualizacao?: string
+  dataAlteracao?: string
 }
 
 export interface PedidoTinyDetalhe extends PedidoTinyLista {
   data?: string // AAAA-MM-DD da emissão
-  dataAlteracao?: string
   valorTotalPedido?: number | string
   valorTotalProdutos?: number | string
   itens?: ItemPedidoTiny[]
@@ -143,6 +152,32 @@ export function isoTiny(v: unknown): string | null {
 
 export const soDigitos = (v: unknown): string => String(v ?? '').replace(/\D/g, '')
 
+// Momento da última alteração do pedido em ms, para ordenar a fila e mover o cursor.
+export function msPedidoTiny(p: PedidoTinyLista): number | null {
+  const iso = isoTiny(p.dataAtualizacao ?? p.dataAlteracao)
+  return iso === null ? null : new Date(iso).getTime()
+}
+
+// Corpo da resposta sem estourar SyntaxError com trecho do HTML dentro: a mensagem
+// de um erro do worker vai parar em connectors.ultimo_erro, que o dono lê na tela.
+export function jsonTiny<T>(texto: string, contexto: string): T {
+  if (texto.trim() === '') return {} as T
+  try {
+    return JSON.parse(texto) as T
+  } catch {
+    throw new ErroConector('tiny', `${contexto}: o Tiny respondeu em formato inesperado (não é JSON)`)
+  }
+}
+
+// Erro que só se resolve com o admin reautorizando (refresh vencido, rotacionado por
+// outro processo ou sessão encerrada no Keycloak). Só o veredito sai daqui, nunca o corpo.
+const MARCAS_REAUTH = ['invalid_grant', 'invalid_token', 'token is not active', 'session not active', 'not_active']
+export function ehErroDeReauth(status: number, texto: string): boolean {
+  if (status !== 400 && status !== 401 && status !== 403) return false
+  const t = texto.toLowerCase()
+  return MARCAS_REAUTH.some((m) => t.includes(m))
+}
+
 // Mensagem de erro do Tiny sem nunca vazar credencial: só campos conhecidos de erro.
 export function mensagemErroTiny(texto: string): string {
   try {
@@ -170,7 +205,9 @@ export function extrairXmlTiny(texto: string): string | undefined {
   if (typeof bruto !== 'string' || bruto === '') return undefined
   if (bruto.trimStart().startsWith('<')) return bruto
   try {
-    const decodificado = atob(bruto)
+    // atob devolve bytes, não texto: sem o TextDecoder os acentos do emitente viram lixo.
+    const bytes = Uint8Array.from(atob(bruto), (c) => c.charCodeAt(0))
+    const decodificado = new TextDecoder('utf-8').decode(bytes)
     return decodificado.trimStart().startsWith('<') ? decodificado : undefined
   } catch {
     return undefined
@@ -214,11 +251,18 @@ export function itensDaNotaTiny(n: NotaTinyDetalhe): { codigo: string; descricao
 
 // Saldo do depósito configurado; sem depósito, o saldo físico total (o auditor compara
 // produção apontada com saldo físico, então "disponivel" — que desconta reservas — é só fallback).
-export function saldoDoEstoqueTiny(e: EstoqueTiny, depositoId?: string | number): number {
+// Devolve null quando a resposta não tem saldo nenhum: o auditor ignora o SKU em vez de
+// registrar divergência contra um zero inventado (se o mapa estiver errado, o dia inteiro
+// viraria "produção sumiu do hub").
+export function saldoDoEstoqueTiny(e: EstoqueTiny, depositoId?: string | number): number | null {
   if (depositoId !== undefined && depositoId !== '') {
     const alvo = String(depositoId)
-    const d = (e.depositos ?? []).find((x) => String(x.id ?? x.deposito?.id ?? '') === alvo)
-    if (d) return numero(d.saldo ?? d.deposito?.saldo)
+    const depositos = e.depositos ?? []
+    if (depositos.length === 0) return null // sem quebra por depósito não dá para responder pelo depósito pedido
+    const d = depositos.find((x) => String(x.id ?? x.deposito?.id ?? '') === alvo)
+    const saldo = d?.saldo ?? d?.deposito?.saldo
+    return saldo === undefined || saldo === null ? 0 : numero(saldo) // depósito ausente na lista = sem saldo lá
   }
-  return numero(e.saldo ?? e.disponivel)
+  const total = e.saldo ?? e.disponivel
+  return total === undefined || total === null ? null : numero(total)
 }

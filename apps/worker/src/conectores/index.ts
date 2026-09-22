@@ -13,7 +13,7 @@ export interface ConfigComum {
   intervalo_min?: number
 }
 
-export function criarConector(row: ConectorRow, credenciais: Credenciais | null, env: Env, db: Pick<Db, 'setCredentials'>): Conector {
+export function criarConector(row: ConectorRow, credenciais: Credenciais | null, env: Env, db: Pick<Db, 'getCredentials' | 'setCredentials'>): Conector {
   const config = (row.config ?? {}) as ConfigComum & ConfigBaseLinker & ConfigBling & ConfigTiny
   if (!credenciais) throw new ErroConector(row.plataforma, 'conector sem credenciais')
   switch (row.plataforma) {
@@ -36,6 +36,9 @@ export function criarConector(row: ConectorRow, credenciais: Credenciais | null,
         config,
         fuso: row.tenants?.fuso,
         persistir: (c) => db.setCredentials(row.tenant_id, row.id, c as unknown as Credenciais),
+        // O refresh do Tiny é rotativo: reler antes de renovar evita queimar o par que
+        // outra execução do cron acabou de gravar.
+        recarregar: async () => (await db.getCredentials(row.id)) as CredenciaisTiny | null,
       })
     default:
       throw new ErroConector(row.plataforma, `plataforma ${row.plataforma} ainda sem adaptador`)

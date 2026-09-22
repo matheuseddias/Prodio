@@ -3,12 +3,11 @@
 // PRECISA ser persistido). Sem webhooks na API: pedidos só por polling. Limite prático de
 // ~60 req/min por conta, compartilhado entre todos os apps do cliente.
 // Todo caminho de endpoint e nome de campo vem de ./tinyMapa — ver o aviso de validação lá.
-import { ClienteHttp, obterCliente, type FetchFn } from '../http'
+import { ClienteHttp, obterCliente } from '../http'
 import { log } from '../log'
 import {
   ErroConector,
   UNSUPPORTED,
-  numero,
   type Capacidades,
   type Conector,
   type Cursor,
@@ -20,24 +19,25 @@ import {
   type SaldoHub,
   type Unsupported,
 } from './tipos'
+import { RECONECTE_TINY, mesclarCredenciaisTiny, oauthTokenTiny, type AppTiny, type CredenciaisTiny } from './tinyAuth'
 import {
   MAPA_TINY,
   dataTiny,
-  extrairXmlTiny,
-  itensDaNotaTiny,
+  jsonTiny,
   mensagemErroTiny,
+  msPedidoTiny,
   normalizarPedidoTiny,
   normalizarProdutoTiny,
   saldoDoEstoqueTiny,
-  soDigitos,
   type EstoqueTiny,
-  type NotaTinyDetalhe,
-  type NotaTinyLista,
   type PedidoTinyDetalhe,
   type PedidoTinyLista,
   type ProdutoTiny,
   type RespostaLista,
 } from './tinyMapa'
+import { buscarNfeTiny, type ClienteTiny, type OpcoesChamadaTiny } from './tinyNfe'
+
+export { oauthTokenTiny, type AppTiny, type CredenciaisTiny } from './tinyAuth'
 
 export const SOBREPOSICAO_MS = 2 * 3600 * 1000
 const INTERVALO_MS = 1100 // ~55 req/min, abaixo do limite observado por conta
@@ -45,24 +45,18 @@ const MAX_PAGINAS = 30
 const MARGEM_RENOVACAO_MS = 60_000
 const DIAS_NFE_PADRAO = 60
 const MAX_BUSCA_DIRETA = 25 // acima disso compensa ler o catálogo inteiro de uma vez
+// Tetos por execução: cada detalhe de pedido e cada saldo custa uma chamada a 1,1 s, e o
+// cron de pedidos roda de 5 em 5 min. Sem teto, uma primeira carga grande estoura a janela,
+// morre no meio e o cursor nunca avança — o conector ficaria parado para sempre.
+const MAX_PEDIDOS_POR_RODADA = 150
+const MAX_SALDOS_POR_RODADA = 250
 
-export interface AppTiny {
-  clientId: string
-  clientSecret: string
-}
-export interface CredenciaisTiny {
-  // O app do Tiny é privado por seller: o cliente cria o aplicativo na conta dele
-  // e cola client_id/client_secret. O app global do env é só fallback.
-  client_id?: string
-  client_secret?: string
-  access_token?: string
-  refresh_token?: string
-  expires_at?: number // epoch ms
-}
 export interface ConfigTiny {
   deposito_id?: string | number
   dias_iniciais?: number
   dias_nfe?: number // janela da busca de NF-e de entrada por chave (padrão 60 dias)
+  max_pedidos?: number // teto de detalhes de pedido por execução (padrão 150)
+  max_produtos?: number // teto de saldos lidos por execução do auditor (padrão 250)
 }
 
 // pushCatalogo fica false enquanto o adaptador não enviar produto/ficha ao Tiny,
@@ -76,32 +70,7 @@ export const CAPACIDADES_TINY: Capacidades = {
   nfeCompra: true,
 }
 
-interface RespostaTokenTiny {
-  access_token: string
-  refresh_token: string
-  expires_in: number
-}
-
-// Troca code/refresh por tokens. Compartilhado com a rota de callback do OAuth.
-// Keycloak espera client_id/client_secret no corpo, não em Basic.
-export async function oauthTokenTiny(
-  app: AppTiny,
-  params: Record<string, string>,
-  fetchFn: FetchFn = (i, o) => fetch(i, o),
-): Promise<CredenciaisTiny> {
-  const corpo = new URLSearchParams({ client_id: app.clientId, client_secret: app.clientSecret, ...params })
-  const res = await fetchFn(MAPA_TINY.token, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
-    body: corpo.toString(),
-  })
-  const texto = await res.text()
-  if (!res.ok) throw new ErroConector('tiny', `OAuth Tiny falhou (${res.status}): ${mensagemErroTiny(texto)}`, { status: res.status })
-  const t = JSON.parse(texto) as RespostaTokenTiny
-  return { access_token: t.access_token, refresh_token: t.refresh_token, expires_at: Date.now() + numero(t.expires_in) * 1000 }
-}
-
-export class ConectorTiny implements Conector {
+export class ConectorTiny implements Conector, ClienteTiny {
   plataforma = 'tiny' as const
   capacidades = CAPACIDADES_TINY
   private creds: CredenciaisTiny
@@ -109,6 +78,7 @@ export class ConectorTiny implements Conector {
   private config: ConfigTiny
   private cliente: ClienteHttp
   private persistir: (c: CredenciaisTiny) => Promise<void>
+  private recarregar?: () => Promise<CredenciaisTiny | null>
   private agora: () => number
   private fuso: string
   private renovando?: Promise<void>
@@ -122,6 +92,7 @@ export class ConectorTiny implements Conector {
     config?: ConfigTiny
     fuso?: string
     persistir: (c: CredenciaisTiny) => Promise<void>
+    recarregar?: () => Promise<CredenciaisTiny | null>
     cliente?: ClienteHttp
     agora?: () => number
   }) {
@@ -133,6 +104,7 @@ export class ConectorTiny implements Conector {
     this.config = opts.config ?? {}
     this.fuso = opts.fuso ?? 'America/Sao_Paulo'
     this.persistir = opts.persistir
+    this.recarregar = opts.recarregar
     this.cliente = opts.cliente ?? obterCliente({ nome: `tiny:${opts.connectorId}`, intervaloMinMs: INTERVALO_MS })
     this.agora = opts.agora ?? Date.now
   }
@@ -140,36 +112,59 @@ export class ConectorTiny implements Conector {
   // O refresh do Tiny é rotativo e vale ~24 h: sem persistir o novo par, a conexão morre.
   private async renovarToken(): Promise<void> {
     if (this.renovando) return this.renovando
-    this.renovando = (async () => {
-      if (!this.creds.refresh_token) throw new ErroConector('tiny', 'sem refresh_token: reconecte o Tiny', { codigo: 'reauth' })
-      const novas = await oauthTokenTiny(this.app, { grant_type: 'refresh_token', refresh_token: this.creds.refresh_token }, (i, o) => this.cliente.requisitar(i, o))
-      this.creds = { ...this.creds, ...novas }
-      await this.persistir(this.creds)
-      log('info', 'tiny.tokenRenovado', { expiraEm: new Date(novas.expires_at ?? 0).toISOString() })
-    })().finally(() => {
+    this.renovando = this.trocarRefresh().finally(() => {
       this.renovando = undefined
     })
     return this.renovando
   }
 
-  private async requisitar(metodo: string, caminho: string, opts: { query?: Record<string, string>; corpo?: unknown }): Promise<string> {
+  private async trocarRefresh(): Promise<void> {
+    // Cron e webhook podem renovar quase juntos. Como o refresh é rotativo, quem chega
+    // depois queimaria o par que o outro acabou de gravar: relê antes e adota o mais novo.
+    const guardadas = this.recarregar ? await this.recarregar().catch(() => null) : null
+    if (guardadas?.access_token && (guardadas.expires_at ?? 0) > (this.creds.expires_at ?? 0)) {
+      this.creds = mesclarCredenciaisTiny(this.creds, guardadas)
+      if ((this.creds.expires_at ?? 0) - MARGEM_RENOVACAO_MS > this.agora()) {
+        log('info', 'tiny.tokenDeOutraExecucao', { expiraEm: new Date(this.creds.expires_at ?? 0).toISOString() })
+        return
+      }
+    }
+    if (!this.creds.refresh_token) throw new ErroConector('tiny', `sem refresh_token: ${RECONECTE_TINY}`, { codigo: 'reauth' })
+    const novas = await oauthTokenTiny(
+      this.app,
+      { grant_type: 'refresh_token', refresh_token: this.creds.refresh_token },
+      (i, o) => this.cliente.requisitar(i, o),
+      this.agora,
+    )
+    this.creds = mesclarCredenciaisTiny(this.creds, novas)
+    await this.persistir(this.creds)
+    log('info', 'tiny.tokenRenovado', { expiraEm: new Date(this.creds.expires_at ?? 0).toISOString() })
+  }
+
+  async requisitar(metodo: string, caminho: string, opts: OpcoesChamadaTiny): Promise<string> {
     if (!this.creds.access_token || (this.creds.expires_at ?? 0) - MARGEM_RENOVACAO_MS < this.agora()) await this.renovarToken()
     const url = new URL(MAPA_TINY.api + caminho)
     for (const [k, v] of Object.entries(opts.query ?? {})) url.searchParams.set(k, v)
     const executar = () =>
-      this.cliente.requisitar(url.toString(), {
-        method: metodo,
-        headers: {
-          Authorization: `Bearer ${this.creds.access_token}`,
-          Accept: 'application/json',
-          ...(opts.corpo === undefined ? {} : { 'Content-Type': 'application/json' }),
+      this.cliente.requisitar(
+        url.toString(),
+        {
+          method: metodo,
+          headers: {
+            Authorization: `Bearer ${this.creds.access_token}`,
+            Accept: 'application/json',
+            ...(opts.corpo === undefined ? {} : { 'Content-Type': 'application/json' }),
+          },
+          body: opts.corpo === undefined ? undefined : JSON.stringify(opts.corpo),
         },
-        body: opts.corpo === undefined ? undefined : JSON.stringify(opts.corpo),
-      })
+        { repetivel: opts.repetivel !== false },
+      )
     let res = await executar()
     if (res.status === 401) {
       await this.renovarToken()
       res = await executar()
+      // Token recém-renovado e ainda 401: não adianta tentar de novo no próximo cron.
+      if (res.status === 401) throw new ErroConector('tiny', `o Tiny recusou o token renovado: ${RECONECTE_TINY}`, { status: 401, codigo: 'reauth' })
     }
     const texto = await res.text()
     // Nunca ecoa o corpo cru nem a URL: só a mensagem de erro conhecida do Tiny.
@@ -177,28 +172,45 @@ export class ConectorTiny implements Conector {
     return texto
   }
 
-  async chamar<T>(metodo: string, caminho: string, opts: { query?: Record<string, string>; corpo?: unknown } = {}): Promise<T> {
-    const texto = await this.requisitar(metodo, caminho, opts)
-    return (texto ? (JSON.parse(texto) as T) : ({} as T))
+  async chamar<T>(metodo: string, caminho: string, opts: OpcoesChamadaTiny = {}): Promise<T> {
+    return jsonTiny<T>(await this.requisitar(metodo, caminho, opts), `Tiny ${metodo} ${caminho}`)
   }
 
-  private async listar<T>(caminho: string, query: Record<string, string>, maxPaginas = MAX_PAGINAS): Promise<T[]> {
+  // Paginação por limit/offset. Anda pelo tamanho real do lote (se a conta devolver menos
+  // que o limite pedido, o offset continua certo) e usa paginacao.total quando vem.
+  async listar<T>(
+    caminho: string,
+    query: Record<string, string>,
+    opts: { maxPaginas?: number; parar?: (lote: T[]) => boolean } = {},
+  ): Promise<T[]> {
     const limite = MAPA_TINY.limitePagina
+    const maxPaginas = opts.maxPaginas ?? MAX_PAGINAS
     const saida: T[] = []
+    let deslocamento = 0
     for (let pagina = 0; pagina < maxPaginas; pagina++) {
       const r = await this.chamar<RespostaLista<T>>('GET', caminho, {
-        query: { ...query, [MAPA_TINY.query.limite]: String(limite), [MAPA_TINY.query.deslocamento]: String(pagina * limite) },
+        query: { ...query, [MAPA_TINY.query.limite]: String(limite), [MAPA_TINY.query.deslocamento]: String(deslocamento) },
       })
-      const lote = r.itens ?? []
+      const lote = Array.isArray(r.itens) ? r.itens : []
       saida.push(...lote)
-      if (lote.length < limite) break
+      deslocamento += lote.length
+      if (lote.length === 0 || opts.parar?.(lote)) break
+      // `total` só é usado quando dá para acreditar que conta itens (>= o que já veio):
+      // se a conta devolver contagem de páginas, o teste falha e cai no tamanho do lote.
+      const total = Number(r.paginacao?.total)
+      if (Number.isFinite(total) && total >= deslocamento) {
+        if (deslocamento >= total) break
+      } else if (lote.length < limite) break
     }
     return saida
   }
 
   private async detalhePedido(id: string | number): Promise<PedidoNormalizado | null> {
     const p = await this.chamar<PedidoTinyDetalhe | null>('GET', MAPA_TINY.rotas.pedido(id))
-    return p && p.id !== undefined ? normalizarPedidoTiny(p, new Date(this.agora()).toISOString()) : null
+    if (p && p.id !== undefined) return normalizarPedidoTiny(p, new Date(this.agora()).toISOString())
+    // Some sem erro só se o mapa estiver errado: registra para não virar pedido perdido em silêncio.
+    log('warn', 'tiny.pedidoSemDetalhe', { pedido: String(id) })
+    return null
   }
 
   // A listagem do Tiny não traz itens: lista os ids alterados e busca o detalhe de cada um.
@@ -206,18 +218,35 @@ export class ConectorTiny implements Conector {
     const agora = this.agora()
     const dias = this.config.dias_iniciais ?? 3
     const bruto = Number(cursor?.alterado_desde)
-    const desde = Number.isFinite(bruto) && bruto > 0 ? bruto : agora - dias * 86400_000
+    const desde = Number.isFinite(bruto) && bruto > 0 ? Math.min(bruto, agora) : agora - dias * 86400_000
     const lista = await this.listar<PedidoTinyLista>(MAPA_TINY.rotas.pedidos, {
       [MAPA_TINY.query.pedidoAlteradoDesde]: dataTiny(new Date(desde), this.fuso),
     })
+    // Páginas podem repetir id (o conjunto muda enquanto se pagina) e a ordem não é garantida:
+    // deduplica e põe o mais antigo na frente, para o teto cortar sempre o fim da fila.
+    const unicos = [...new Map(lista.filter((p) => p?.id !== undefined).map((p) => [String(p.id), p])).values()]
+    unicos.sort((a, b) => (msPedidoTiny(a) ?? Number.MAX_SAFE_INTEGER) - (msPedidoTiny(b) ?? Number.MAX_SAFE_INTEGER))
+    const teto = Math.max(1, this.config.max_pedidos ?? MAX_PEDIDOS_POR_RODADA)
+    const fatia = unicos.slice(0, teto)
     const pedidos: PedidoNormalizado[] = []
-    for (const p of lista) {
+    for (const p of fatia) {
       const detalhe = await this.detalhePedido(p.id)
       if (detalhe) pedidos.push(detalhe)
     }
-    const proximo = agora - SOBREPOSICAO_MS
+    const cortou = unicos.length > fatia.length
+    const proximo = cortou ? this.cursorParcial(fatia, desde, agora) : agora - SOBREPOSICAO_MS
+    if (cortou) log('warn', 'tiny.pullOrders.teto', { alterados: unicos.length, teto, cursor: proximo })
     log('info', 'tiny.pullOrders', { pedidos: pedidos.length, cursor: proximo })
     return { pedidos, cursor: { alterado_desde: proximo } }
+  }
+
+  // Com a fila cortada, o cursor só pode andar até o último pedido realmente processado
+  // (menos a sobreposição). Sem data na listagem, fica onde estava: repetir é barato, perder não.
+  private cursorParcial(processados: PedidoTinyLista[], desde: number, agora: number): number {
+    const datas = processados.map(msPedidoTiny).filter((m): m is number => m !== null)
+    const ultimo = datas.length ? Math.max(...datas) : null
+    const alvo = ultimo === null ? desde : Math.max(desde, ultimo - SOBREPOSICAO_MS)
+    return Math.min(alvo, agora - SOBREPOSICAO_MS)
   }
 
   async pullOrder(externalId: string): Promise<PedidoNormalizado | null> {
@@ -225,7 +254,7 @@ export class ConectorTiny implements Conector {
   }
 
   async pullCatalog(): Promise<ItemCatalogo[]> {
-    const produtos = await this.listar<ProdutoTiny>(MAPA_TINY.rotas.produtos, {}, 200)
+    const produtos = await this.listar<ProdutoTiny>(MAPA_TINY.rotas.produtos, {}, { maxPaginas: 200 })
     const itens: ItemCatalogo[] = []
     for (const p of produtos) {
       const item = normalizarProdutoTiny(p)
@@ -260,13 +289,21 @@ export class ConectorTiny implements Conector {
 
   async pullFinishedStock(skus?: string[]): Promise<SaldoHub[]> {
     const ids = await this.idsPorSku(skus)
-    const lista = skus ?? [...ids.keys()]
+    const alvos = skus ?? [...ids.keys()]
+    const teto = Math.max(1, this.config.max_produtos ?? MAX_SALDOS_POR_RODADA)
+    const lista = alvos.slice(0, teto)
+    if (alvos.length > lista.length) log('warn', 'tiny.estoque.teto', { produtos: alvos.length, teto })
     const saldos: SaldoHub[] = []
     for (const sku of lista) {
       const id = ids.get(sku)
       if (!id) continue // SKU que não existe no Tiny não é divergência de saldo
       const e = await this.chamar<EstoqueTiny>('GET', MAPA_TINY.rotas.estoque(id))
-      saldos.push({ sku, externalId: id, saldo: saldoDoEstoqueTiny(e, this.config.deposito_id) })
+      const saldo = saldoDoEstoqueTiny(e, this.config.deposito_id)
+      if (saldo === null) {
+        log('warn', 'tiny.estoque.semSaldo', { sku, produto: id })
+        continue // resposta sem saldo: melhor não auditar do que auditar contra zero inventado
+      }
+      saldos.push({ sku, externalId: id, saldo })
     }
     return saldos
   }
@@ -276,16 +313,18 @@ export class ConectorTiny implements Conector {
   async pushFinishedStock(deltas: DeltaEstoque[], opts: { dryRun: boolean }): Promise<ResultadoPush[]> {
     const resultados: ResultadoPush[] = []
     if (deltas.length === 0) return resultados
-    const ids = await this.idsPorSku(deltas.map((d) => d.sku))
+    // Delta zero não gasta chamada nem exige o produto no Tiny: resolve antes do de-para.
+    const comDelta = deltas.filter((d) => d.delta !== 0)
+    const ids = comDelta.length ? await this.idsPorSku(comDelta.map((d) => d.sku)) : new Map<string, string>()
     for (const d of deltas) {
+      if (d.delta === 0) {
+        resultados.push({ sku: d.sku, ok: true })
+        continue
+      }
       const id = ids.get(d.sku)
       if (!id) {
         resultados.push({ sku: d.sku, ok: false, erro: 'SKU não encontrado no Tiny' })
         break
-      }
-      if (d.delta === 0) {
-        resultados.push({ sku: d.sku, ok: true })
-        continue
       }
       if (opts.dryRun) {
         log('info', 'tiny.push.dryRun', { sku: d.sku, delta: d.delta })
@@ -294,6 +333,9 @@ export class ConectorTiny implements Conector {
       }
       try {
         await this.chamar('POST', MAPA_TINY.rotas.estoque(id), {
+          // Movimento de estoque não é idempotente: 5xx ou queda de rede podem ter sido
+          // aplicados do outro lado, então esta chamada não é repetida automaticamente.
+          repetivel: false,
           corpo: {
             [MAPA_TINY.camposEstoque.tipo]: d.delta > 0 ? MAPA_TINY.valores.estoqueEntrada : MAPA_TINY.valores.estoqueSaida,
             [MAPA_TINY.camposEstoque.quantidade]: Math.abs(d.delta),
@@ -311,41 +353,9 @@ export class ConectorTiny implements Conector {
     return resultados
   }
 
-  // A listagem de notas do Tiny não filtra por chave de acesso: varre as notas de
-  // entrada da janela configurada e casa pela chave (só dígitos).
+  // A v3 não filtra nota por chave: a varredura da janela está em ./tinyNfe.
   async findInboundNfe(chave: string): Promise<NfeEncontrada | null> {
-    const alvo = soDigitos(chave)
-    if (alvo.length !== 44) return null
-    const agora = this.agora()
-    const dias = this.config.dias_nfe ?? DIAS_NFE_PADRAO
-    const notas = await this.listar<NotaTinyLista>(MAPA_TINY.rotas.notas, {
-      [MAPA_TINY.query.notaTipo]: MAPA_TINY.valores.notaEntrada,
-      [MAPA_TINY.query.notaDataInicial]: dataTiny(new Date(agora - dias * 86400_000), this.fuso),
-      [MAPA_TINY.query.notaDataFinal]: dataTiny(new Date(agora), this.fuso),
-    })
-    const achada = notas.find((n) => soDigitos(n.chaveAcesso) === alvo)
-    if (!achada) return null
-    const n = await this.chamar<NotaTinyDetalhe>('GET', MAPA_TINY.rotas.nota(achada.id))
-    return {
-      externalId: String(achada.id),
-      chave: alvo,
-      numero: numero(n.numero ?? achada.numero),
-      serie: numero(n.serie ?? achada.serie),
-      emitente: n.fornecedor?.nome ?? n.contato?.nome ?? n.cliente?.nome,
-      xml: await this.xmlDaNota(achada.id),
-      itens: itensDaNotaTiny(n),
-      raw: n,
-    }
-  }
-
-  private async xmlDaNota(id: string | number): Promise<string | undefined> {
-    try {
-      return extrairXmlTiny(await this.requisitar('GET', MAPA_TINY.rotas.notaXml(id), {}))
-    } catch (e) {
-      // Sem XML a NF-e ainda serve (itens vêm do detalhe): não derruba a busca.
-      log('warn', 'tiny.nfe.semXml', { nota: String(id), erro: e instanceof Error ? e.message : String(e) })
-      return undefined
-    }
+    return buscarNfeTiny(this, chave, { agora: this.agora(), fuso: this.fuso, dias: this.config.dias_nfe ?? DIAS_NFE_PADRAO })
   }
 
   // A API v3 do Tiny não expõe webhooks (só a interface avisa por e-mail/URL legada).

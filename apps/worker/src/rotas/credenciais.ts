@@ -4,7 +4,7 @@ import type { Env } from '../env'
 import { Db, type Credenciais } from '../db'
 import { URL_BLING_AUTORIZAR, hmacSha256Hex, oauthTokenBling, type CredenciaisBling } from '../conectores/bling'
 import { MAPA_TINY } from '../conectores/tinyMapa'
-import { oauthTokenTiny } from '../conectores/tiny'
+import { oauthTokenTiny } from '../conectores/tinyAuth'
 import { log, mensagemErro } from '../log'
 import { ErroRota, erro, exigirAdminDoConector, exigirUsuario, json, tratarErro } from './util'
 

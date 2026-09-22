@@ -5,6 +5,11 @@ import { log } from './log'
 export type FetchFn = (input: string, init?: RequestInit) => Promise<Response>
 export type SleepFn = (ms: number) => Promise<void>
 
+// Opções por chamada (o resto é da conta inteira).
+export interface OpcoesChamada {
+  repetivel?: boolean // padrão true; false em escrita não idempotente
+}
+
 export interface OpcoesCliente {
   nome: string // identifica a conta no log (ex.: "baselinker:<connector_id>")
   intervaloMinMs: number // espaçamento entre chamadas da mesma conta
@@ -67,8 +72,10 @@ export class ClienteHttp {
   }
 
   // Enfileira a chamada: uma por vez por conta, com intervalo mínimo entre elas.
-  requisitar(url: string, init: RequestInit = {}): Promise<Response> {
-    const exec = () => this.executar(url, init)
+  // `repetivel: false` (escrita que não é idempotente, ex.: lançar estoque) só repete em 429,
+  // que é recusa garantida: 5xx e queda de rede podem ter sido aplicados do outro lado.
+  requisitar(url: string, init: RequestInit = {}, opcoes: OpcoesChamada = {}): Promise<Response> {
+    const exec = () => this.executar(url, init, opcoes)
     const p = this.fila.then(exec, exec)
     this.fila = p.catch(() => undefined)
     return p
@@ -80,8 +87,9 @@ export class ClienteHttp {
     this.liberadoEm = this.agora + this.opts.intervaloMinMs
   }
 
-  private async executar(url: string, init: RequestInit): Promise<Response> {
+  private async executar(url: string, init: RequestInit, opcoes: OpcoesChamada = {}): Promise<Response> {
     const max = this.opts.tentativas
+    const repetivel = opcoes.repetivel !== false
     for (let tentativa = 0; ; tentativa++) {
       await this.aguardarIntervalo()
       this.chamadas++
@@ -89,13 +97,13 @@ export class ClienteHttp {
       try {
         res = await this.fetchFn(url, init)
       } catch (e) {
-        if (tentativa >= max) throw e
+        if (!repetivel || tentativa >= max) throw e
         const espera = Math.min(500 * 2 ** tentativa, this.opts.esperaMaxMs)
         log('warn', 'http.rede', { conta: this.opts.nome, url, tentativa, espera, erro: String(e) })
         await this.sleep(espera)
         continue
       }
-      const repetir = res.status === 429 || res.status >= 500
+      const repetir = res.status === 429 || (repetivel && res.status >= 500)
       if (repetir && tentativa < max) {
         const espera = await calcularEspera(res, tentativa, this.opts.esperaMaxMs)
         log('warn', 'http.backoff', { conta: this.opts.nome, url, status: res.status, tentativa, espera })

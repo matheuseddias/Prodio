@@ -1,7 +1,8 @@
 import { ClienteHttp } from '../http'
 import { silenciarLog } from '../log'
 import { ConectorTiny, SOBREPOSICAO_MS, type CredenciaisTiny } from './tiny'
-import { MAPA_TINY, dataTiny, extrairXmlTiny, mensagemErroTiny } from './tinyMapa'
+import { MAPA_TINY, dataTiny, extrairXmlTiny, mensagemErroTiny, saldoDoEstoqueTiny } from './tinyMapa'
+import { numero } from './tipos'
 
 silenciarLog(true)
 
@@ -36,6 +37,7 @@ function montar(fetchFn: (u: string, i?: RequestInit) => Promise<Response>, cred
 }
 
 const VALIDO = { access_token: 'ok', refresh_token: 'r1', expires_at: AGORA + 3_600_000 }
+const DIA = (s: string) => Date.parse(`${s}T00:00:00-03:00`)
 
 describe('Tiny · renovação de token', () => {
   it('token vencido: renova pelo Keycloak, persiste o par rotativo e usa o novo access_token', async () => {
@@ -105,17 +107,51 @@ describe('Tiny · pedidos', () => {
     expect(r.cursor).toEqual({ alterado_desde: AGORA - SOBREPOSICAO_MS })
   })
 
-  it('pagina a listagem até o lote vir incompleto', async () => {
+  it('pagina a listagem até o lote vir incompleto, mesmo com "total" que não conta itens', async () => {
     const cheio = Array.from({ length: MAPA_TINY.limitePagina }, (_, i) => ({ id: i + 1 }))
     const { chamadas, fetchFn } = fetchFalso((c) => {
       if (c.url.pathname !== P('/pedidos')) return json({ id: Number(c.url.pathname.split('/').pop()), itens: [] })
-      return json({ itens: c.url.searchParams.get(MAPA_TINY.query.deslocamento) === '0' ? cheio : [{ id: 999 }] })
+      // paginacao.total = 2 aqui é contagem de páginas: acreditar nele pararia na primeira.
+      return json({ itens: c.url.searchParams.get(MAPA_TINY.query.deslocamento) === '0' ? cheio : [{ id: 999 }], paginacao: { total: 2 } })
     })
     const { c } = montar(fetchFn, VALIDO)
     const r = await c.pullOrders(null)
     const listagens = chamadas.filter((x) => x.url.pathname === P('/pedidos'))
     expect(listagens.map((x) => x.url.searchParams.get(MAPA_TINY.query.deslocamento))).toEqual(['0', '100'])
     expect(r.pedidos).toHaveLength(MAPA_TINY.limitePagina + 1)
+  })
+
+  it('pagina pelo tamanho real do lote e pelo total, não pelo limite pedido', async () => {
+    // A conta pode devolver menos que o `limit` pedido: andar de 100 em 100 pularia pedidos.
+    const pagina = (n: number, ini: number) => Array.from({ length: n }, (_, i) => ({ id: ini + i }))
+    const { chamadas, fetchFn } = fetchFalso((c) => {
+      if (c.url.pathname !== P('/pedidos')) return json({ id: Number(c.url.pathname.split('/').pop()) })
+      const off = Number(c.url.searchParams.get(MAPA_TINY.query.deslocamento))
+      return json({ itens: pagina(off < 100 ? 50 : 20, off + 1), paginacao: { total: 120 } })
+    })
+    const { c } = montar(fetchFn, VALIDO, { max_pedidos: 500 })
+    const r = await c.pullOrders(null)
+    const listagens = chamadas.filter((x) => x.url.pathname === P('/pedidos'))
+    expect(listagens.map((x) => x.url.searchParams.get(MAPA_TINY.query.deslocamento))).toEqual(['0', '50', '100'])
+    expect(r.pedidos).toHaveLength(120)
+  })
+
+  it('teto por rodada: processa os mais antigos, deduplica e só avança o cursor até onde chegou', async () => {
+    const itens = [
+      { id: 3, dataAtualizacao: '2026-09-18' },
+      { id: 1, dataAtualizacao: '2026-09-16' },
+      { id: 2, dataAtualizacao: '2026-09-17' },
+      { id: 1, dataAtualizacao: '2026-09-16' }, // mesmo pedido repetido entre páginas
+    ]
+    const { chamadas, fetchFn } = fetchFalso((c) =>
+      c.url.pathname === P('/pedidos') ? json({ itens }) : json({ id: Number(c.url.pathname.split('/').pop()) }),
+    )
+    const { c } = montar(fetchFn, VALIDO, { max_pedidos: 2 })
+    const r = await c.pullOrders({ alterado_desde: DIA('2026-09-01') })
+    expect(chamadas.map((x) => x.url.pathname)).toEqual([P('/pedidos'), P('/pedidos/1'), P('/pedidos/2')])
+    expect(r.pedidos.map((p) => p.externalId)).toEqual(['1', '2'])
+    // Cursor no último processado (menos a sobreposição): o pedido 3 volta na próxima rodada.
+    expect(r.cursor).toEqual({ alterado_desde: DIA('2026-09-17') - SOBREPOSICAO_MS })
   })
 
   it('erro da API vira ErroConector sem ecoar o corpo cru', async () => {
@@ -182,6 +218,36 @@ describe('Tiny · estoque', () => {
     const r = await c.pushFinishedStock([{ sku: 'CAM-01', delta: 3 }, { sku: 'CAN-02', delta: -2 }], { dryRun: true })
     expect(chamadas.filter((x) => x.method === 'POST')).toHaveLength(0)
     expect(r).toEqual([{ sku: 'CAM-01', ok: true, dryRun: true }, { sku: 'CAN-02', ok: true, dryRun: true }])
+  })
+
+  it('resposta sem saldo nenhum é pulada em vez de virar zero', async () => {
+    // Se o mapa de campos estiver errado, zerar o saldo faria o auditor acusar
+    // divergência em todos os SKUs do dia. Melhor não auditar do que auditar errado.
+    const { fetchFn } = fetchFalso((c) => (c.url.pathname === P('/produtos') ? respostaProdutos(c) : json({ id: 9, unidade: 'UN' })))
+    const { c } = montar(fetchFn, VALIDO)
+    expect(await c.pullFinishedStock(['CAM-01'])).toEqual([])
+  })
+
+  it('delta zero de SKU que nem existe no Tiny não derruba o lote', async () => {
+    const { chamadas, fetchFn } = fetchFalso((c) => (c.url.pathname === P('/produtos') ? respostaProdutos(c) : json({ ok: true })))
+    const { c } = montar(fetchFn, VALIDO)
+    const r = await c.pushFinishedStock([{ sku: 'SUMIU', delta: 0 }, { sku: 'CAM-01', delta: 3 }], { dryRun: false })
+    expect(r).toEqual([{ sku: 'SUMIU', ok: true }, { sku: 'CAM-01', ok: true }])
+    expect(chamadas.filter((x) => x.method === 'POST')).toHaveLength(1)
+    // Delta zero também não gasta busca de produto.
+    expect(chamadas.filter((x) => x.url.searchParams.get(MAPA_TINY.query.produtoCodigo) === 'SUMIU')).toHaveLength(0)
+  })
+
+  it('lançamento de estoque não é repetido em 5xx (movimento não é idempotente)', async () => {
+    const { chamadas, fetchFn } = fetchFalso((c) => {
+      if (c.url.pathname === P('/produtos')) return respostaProdutos(c)
+      return json({ mensagem: 'instabilidade' }, 503)
+    })
+    const { c } = montar(fetchFn, VALIDO)
+    const r = await c.pushFinishedStock([{ sku: 'CAM-01', delta: 2 }], { dryRun: false })
+    expect(chamadas.filter((x) => x.method === 'POST')).toHaveLength(1)
+    expect(r[0]).toMatchObject({ sku: 'CAM-01', ok: false })
+    expect(r[0].erro).toContain('instabilidade')
   })
 
   it('sem depósito configurado o corpo não manda deposito', async () => {
@@ -272,5 +338,26 @@ describe('Tiny · mapa', () => {
     expect(mensagemErroTiny(JSON.stringify({ error_description: 'token expirado' }))).toBe('token expirado')
     expect(mensagemErroTiny(JSON.stringify({ errors: [{ mensagem: 'campo x' }, { mensagem: 'campo y' }] }))).toBe('campo x; campo y')
     expect(mensagemErroTiny('<html>500</html>')).toBe('sem detalhe')
+  })
+
+  it('XML em base64 volta com acento certo', () => {
+    const xml = '<nfeProc><emit>Eddias Confecções</emit></nfeProc>'
+    const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(xml)))
+    expect(extrairXmlTiny(JSON.stringify({ xml: b64 }))).toBe(xml)
+  })
+
+  it('número aceita vírgula decimal e ponto de milhar', () => {
+    expect(numero('12,5')).toBe(12.5)
+    expect(numero('1.234,56')).toBe(1234.56)
+    expect(numero('1.5')).toBe(1.5)
+    expect(numero('abc')).toBe(0)
+  })
+
+  it('saldo: depósito pedido sem quebra por depósito é desconhecido, não zero', () => {
+    expect(saldoDoEstoqueTiny({ saldo: 12 }, 77)).toBeNull()
+    expect(saldoDoEstoqueTiny({ saldo: 12, depositos: [{ id: 78, saldo: 7 }] }, 77)).toBe(0)
+    expect(saldoDoEstoqueTiny({ depositos: [{ deposito: { id: 77, saldo: 5 } }] }, 77)).toBe(5)
+    expect(saldoDoEstoqueTiny({ reservado: 1 })).toBeNull()
+    expect(saldoDoEstoqueTiny({ saldo: '1.234,5' })).toBe(1234.5)
   })
 })

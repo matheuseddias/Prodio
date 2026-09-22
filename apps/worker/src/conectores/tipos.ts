@@ -103,7 +103,14 @@ export const unixParaIso = (s: unknown): string | null => {
   return Number.isFinite(n) && n > 0 ? new Date(n * 1000).toISOString() : null
 }
 
+// Número tolerante ao formato brasileiro: "12,5" vira 12.5 e "1.234,56" vira 1234.56
+// (com vírgula, o ponto é separador de milhar). Sem vírgula, o ponto é decimal ("1.5").
 export const numero = (v: unknown): number => {
-  const n = typeof v === 'string' ? Number(v.replace(',', '.')) : Number(v)
+  if (typeof v === 'string') {
+    const t = v.trim()
+    const n = Number(t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t)
+    return Number.isFinite(n) ? n : 0
+  }
+  const n = Number(v)
   return Number.isFinite(n) ? n : 0
 }
