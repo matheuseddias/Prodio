@@ -120,7 +120,7 @@ export function normalizarPedidoBling(p: PedidoBling, agoraIso: string): PedidoN
       nome: it.descricao,
       produtoExternoId: it.produto?.id === undefined ? undefined : String(it.produto.id),
     })),
-    raw: p,
+    // Sem `raw`: ninguém lê orders.raw, e o pedido inteiro custava CPU do cron e espaço no banco.
   }
 }
 

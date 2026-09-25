@@ -23,5 +23,15 @@ crons = [
   "0 3 * * *"      # auditor noturno de estoque no hub
 ]
 
+# Workers Logs: guarda os logs do worker (inclusive os do cron) no painel da Cloudflare, em
+# Workers & Pages > prodio-worker > Observability (ou Logs). Sem isto, erro do robô só aparecia para
+# quem estivesse com `wrangler tail` aberto no minuto certo — foi assim que o cron passou um dia sem
+# gravar nada sem ninguém ver o porquê. Vale no plano Free (200 mil eventos/dia, 3 dias de retenção)
+# e no pago (20 milhões/mês incluídos, 7 dias). O robô gera uns poucos milhares de eventos por dia.
+# Fonte: developers.cloudflare.com/workers/observability/logs/workers-logs/ (wrangler >= 3.78.6).
+[observability]
+enabled = true
+head_sampling_rate = 1   # 1 = guarda 100% das execuções; é pouco volume, e é o erro raro que interessa
+
 # E-mail de entrada (Email Routing): regra "xml@*.prodio.app" -> este worker (handler email). Ver README.md.
 # Sem binding de envio: o worker só recebe.

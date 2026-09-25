@@ -1,6 +1,6 @@
 // Mapeadores de ida e volta entre as linhas do banco (snake_case, docs/schema.md) e os tipos de
 // domínio (@prodio/core/tipos): tenant, cadastros, canais, membros, aparelhos, operadores.
-import type { Channel, Connector, Device, LabelProfile, Location, Material, Member, Notification, Operator, Product, Supplier, Tenant } from '../domain/types'
+import type { Channel, Device, LabelProfile, Location, Material, Member, Notification, Operator, Product, Supplier, Tenant } from '../domain/types'
 
 export const num = (v: unknown, padrao = 0): number => {
   const n = typeof v === 'number' ? v : v == null || v === '' ? NaN : Number(v)
@@ -271,45 +271,6 @@ export function precosPorProduto(rows: PriceRow[]): Record<string, Record<string
   const out: Record<string, Record<string, number>> = {}
   for (const r of rows) (out[r.product_id] ??= {})[r.channel_id] = num(r.preco)
   return out
-}
-
-// --- Conectores -----------------------------------------------------------------
-export const CAPACIDADES: Record<Connector['plataforma'], Connector['capacidades']> = {
-  baselinker: { pedidos: true, webhooks: false, catalogo: true, pushEstoque: true, pushCatalogo: true, nfeCompra: false },
-  bling: { pedidos: true, webhooks: true, catalogo: true, pushEstoque: true, pushCatalogo: true, nfeCompra: true },
-  tiny: { pedidos: true, webhooks: false, catalogo: true, pushEstoque: true, pushCatalogo: true, nfeCompra: true },
-  omie: { pedidos: true, webhooks: true, catalogo: true, pushEstoque: true, pushCatalogo: true, nfeCompra: true },
-  magis5: { pedidos: true, webhooks: false, catalogo: true, pushEstoque: false, pushCatalogo: true, nfeCompra: false },
-}
-export interface ConnectorRow {
-  id: string
-  plataforma: Connector['plataforma']
-  nome: string
-  status: Connector['status']
-  config: Record<string, unknown> | null
-  ultimo_sync: string | null
-  ultimo_erro: string | null
-}
-export function connectorDoBanco(r: ConnectorRow, outboxPendentes = 0): Connector {
-  const cfg = r.config ?? {}
-  const base = CAPACIDADES[r.plataforma] ?? CAPACIDADES.bling
-  return {
-    id: r.id,
-    plataforma: r.plataforma,
-    nome: r.nome,
-    status: r.status,
-    ultimoSync: strOpt(r.ultimo_sync),
-    // O worker grava aqui o motivo da última falha (cron ou teste). A coluna já vinha na leitura e
-    // parava neste mapeador: sem ela, um conector quebrado chega na tela sem sintoma nenhum.
-    ultimoErro: strOpt(r.ultimo_erro),
-    cursor: typeof cfg.cursor === 'string' ? cfg.cursor : undefined,
-    pedidos24h: numOpt(cfg.pedidos_24h),
-    outboxPendentes,
-    capacidades: { ...base, pushEstoque: cfg.push_estoque == null ? base.pushEstoque : !!cfg.push_estoque },
-  }
-}
-export function connectorConfigParaBanco(c: Connector): Record<string, unknown> {
-  return { push_estoque: c.capacidades.pushEstoque, status: c.status }
 }
 
 // --- Membros, aparelhos, operadores, locais, avisos ----------------------------------------

@@ -33,9 +33,13 @@ function conectorFalso(sobrescrever: Partial<Conector> = {}): Conector {
 function dbFalso(conectores: ConectorRow[], lote: LoteOutbox[] = []) {
   const db = {
     listarConectoresAtivos: vi.fn(async () => conectores),
+    getCredentials: vi.fn(async (): Promise<Record<string, unknown> | null> => null),
     marcarStatusConector: vi.fn(async () => {}),
     getSyncState: vi.fn(async () => ({ connector_id: 'x', cursor: { date_confirmed_from: 10 }, last_run_at: null, last_ok_at: null, runs: 1 })),
     setSyncState: vi.fn(async () => {}),
+    marcarPulso: vi.fn(async () => {}),
+    gravarCursor: vi.fn(async () => {}),
+    marcarRodadaManual: vi.fn(async () => {}),
     upsertOrders: vi.fn(async (_t: string, _c: string, pedidos: unknown[]) => pedidos.length),
     claimOutbox: vi.fn(async () => lote),
     applyOutboxResult: vi.fn(async () => {}),
@@ -57,9 +61,13 @@ describe('syncPedidos', () => {
     // O cartão do conector MOSTRA este texto (ConectorSituacao.ts): o que vai para lá é a frase
     // para humano, nunca a mensagem crua do adaptador. A crua fica no log.
     expect(db.setSyncState).toHaveBeenCalledWith('a', null, false, 'não foi possível falar com o BaseLinker agora; confira a conexão e tente de novo em alguns minutos')
-    expect(db.setSyncState).toHaveBeenCalledWith('b', { date_confirmed_from: 15 }, true, null)
+    // Adaptador sem leitura por página (Bling, Tiny) vira uma página única: o cursor é gravado
+    // depois dos pedidos, e a rodada fecha com cursor nulo (o ponto já está gravado).
+    expect(db.gravarCursor).toHaveBeenCalledWith('b', 't-b', { date_confirmed_from: 15 })
+    expect(db.setSyncState).toHaveBeenCalledWith('b', null, true, null)
+    // Sem `raw`: a chave nem vai, e o banco mantém o que houver (coalesce).
     expect(db.upsertOrders).toHaveBeenCalledWith('t-b', 'b', [
-      { external_id: '1', external_status: '7', confirmed_at: null, updated_at_external: null, total: 10, raw: null, itens: [{ sku_externo: 'CAM-01', quantidade: 1, preco: 10 }] },
+      { external_id: '1', external_status: '7', confirmed_at: null, updated_at_external: null, total: 10, itens: [{ sku_externo: 'CAM-01', quantidade: 1, preco: 10 }] },
     ])
   })
 })
@@ -100,6 +108,26 @@ describe('aplicarOutbox', () => {
     expect(db.setSyncState).toHaveBeenCalledWith('b', null, false, 'outbox: catálogo fora')
     expect(resumo.aplicados).toBe(0)
   })
+
+  // O texto vai para connectors.ultimo_erro e integration_outbox.erro, que o tablet do chão de
+  // fábrica lê. O caminho do sync já filtrava segredo; o do outbox gravava a mensagem crua.
+  it('erro do envio não leva a credencial para o cartão, para o item nem para o log', async () => {
+    const segredo = 'segredo-do-cliente-123456'
+    const db = dbFalso([row('b', { push_estoque: true })], lote)
+    db.getCredentials.mockResolvedValue({ client_secret: segredo })
+    await aplicarOutbox(env, db, async () => conectorFalso({ pushFinishedStock: async () => { throw new Error(`invalid_client ${segredo}`) } }))
+    expect(db.setSyncState).toHaveBeenCalledWith('b', null, false, 'outbox: invalid_client [credencial oculta]')
+    db.setSyncState.mockClear()
+    const push = async () => [{ sku: 'A', ok: false, erro: `recusado: ${segredo}` }]
+    await aplicarOutbox(env, db, async () => conectorFalso({ pushFinishedStock: push }))
+    expect(db.applyOutboxResult).toHaveBeenCalledWith([1, 2], false, 'recusado: [credencial oculta]')
+    // Sem conseguir ler a credencial, não há como filtrar: vai uma frase fixa, nunca o texto cru.
+    db.getCredentials.mockRejectedValue(new Error('banco fora'))
+    db.setSyncState.mockClear()
+    await aplicarOutbox(env, db, async () => conectorFalso({ pushFinishedStock: async () => { throw new Error(`invalid_client ${segredo}`) } }))
+    expect(JSON.stringify(db.setSyncState.mock.calls)).not.toContain(segredo)
+    expect(db.setSyncState).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('conector ativo sem credencial', () => {
@@ -119,7 +147,8 @@ describe('conector ativo sem credencial', () => {
     const resumo = await syncPedidos(env, db, montar)
     expect(db.marcarStatusConector).toHaveBeenCalledWith('a', 't-a', 'desconectado', MSG_SEM_CREDENCIAIS)
     expect(db.setSyncState).not.toHaveBeenCalledWith('a', null, false, expect.anything())
-    expect(db.setSyncState).toHaveBeenCalledWith('b', {}, true, null)
+    expect(db.gravarCursor).toHaveBeenCalledWith('b', 't-b', {})
+    expect(db.setSyncState).toHaveBeenCalledWith('b', null, true, null)
     expect(resumo).toEqual({ conectores: 2, ok: 1, falhas: 1, pedidos: 0 })
   })
 

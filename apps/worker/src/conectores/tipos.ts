@@ -27,7 +27,23 @@ export interface PedidoNormalizado {
   updatedAt: string | null // ISO
   total: number
   itens: ItemPedido[]
+  // Anotação pequena para orders.raw (hoje só o webhook do Bling põe aqui o id do evento). Os
+  // adaptadores NÃO copiam o pedido inteiro da plataforma: ninguém lê orders.raw (nem a interface,
+  // nem view, nem RPC), e serializar o pedido cru a cada rodada custava CPU do cron e inchava o banco.
   raw?: unknown
+}
+
+// Uma página de pedidos. É a unidade de progresso do cron (jobs/syncPedidos.ts): os pedidos da
+// página vão para o banco e SÓ DEPOIS o cursor dela é gravado. Se a execução morrer na página
+// seguinte, a próxima rodada recomeça daqui, não do começo.
+export interface PaginaPedidos {
+  pedidos: PedidoNormalizado[]
+  // Ponto de onde a próxima leitura continua. Regra de ouro de quem implementa: esse ponto nunca
+  // pode estar adiante de um pedido que ainda não foi devolvido. Na dúvida, fica para trás (reler é
+  // idempotente, pular é encomenda que a fábrica deixa de produzir).
+  cursor: Cursor
+  // true: a plataforma não tem mais nada agora (a rodada ficou em dia). false: há mais páginas.
+  fim: boolean
 }
 
 export interface ItemCatalogo {
@@ -73,6 +89,9 @@ export interface Conector {
   capacidades: Capacidades
   // Pedidos novos/alterados desde o cursor. Devolve o próximo cursor (com sobreposição, upsert é idempotente).
   pullOrders(cursor: Cursor | null): Promise<{ pedidos: PedidoNormalizado[]; cursor: Cursor }>
+  // Uma página só, para o cron gravar o progresso a cada página (ver PaginaPedidos). Opcional: quem
+  // não implementa é lido por pullOrders numa página única (o Tiny já tem teto próprio por rodada).
+  pullOrdersPagina?(cursor: Cursor | null): Promise<PaginaPedidos>
   // Um pedido por id externo (webhooks).
   pullOrder(externalId: string): Promise<PedidoNormalizado | null | Unsupported>
   pullCatalog(): Promise<ItemCatalogo[] | Unsupported>

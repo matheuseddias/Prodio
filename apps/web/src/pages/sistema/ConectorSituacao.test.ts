@@ -1,8 +1,9 @@
 // A tela promete duas coisas ao dono da fábrica: nunca esconder um erro que o worker gravou, e
 // nunca deixar um "—" no lugar de uma explicação. Estes testes prendem as duas.
 import { describe, expect, it } from 'vitest'
-import type { Connector } from '../../domain/types'
-import { CICLOS_ATE_DESCONFIAR, CICLO_CRON_MIN, situacaoConector } from './ConectorSituacao'
+import { CAPACIDADES } from '../../data/mapeadoresConectores'
+import type { Connector, RoboConector } from '../../domain/types'
+import { CICLOS_ATE_DESCONFIAR, CICLOS_SEM_PULSO, CICLO_CRON_MIN, MINUTOS_RODADA, roboComProblema, situacaoConector } from './ConectorSituacao'
 
 const AGORA = Date.now()
 const minAtras = (min: number) => new Date(AGORA - min * 60_000).toISOString()
@@ -12,7 +13,7 @@ const conector = (p: Partial<Connector> = {}): Connector => ({
   plataforma: 'baselinker',
   nome: 'Eddias (BaseLinker)',
   status: 'conectado',
-  capacidades: { pedidos: true, webhooks: false, catalogo: true, pushEstoque: true, pushCatalogo: true, nfeCompra: false },
+  capacidades: CAPACIDADES.baselinker,
   ...p,
 })
 
@@ -83,5 +84,118 @@ describe('situação do conector', () => {
 
   it('data torta não derruba a tela nem finge que sincronizou', () => {
     expect(situacaoConector(conector({ ultimoSync: 'não é data' }), AGORA)?.tom).toBe('info')
+  })
+})
+
+// O robô, lido de sync_state (incidente de 25/09/2026): um dia inteiro de "Conectado" e "Último sync
+// há 1 d" com o cron sem gravar nada. `ultimo_sync` é gravado pelo robô E pelo botão; sync_state só
+// pelo robô. last_run_at = início da última tentativa; last_ok_at = fim da última que deu certo.
+describe('situação do robô (sync_state)', () => {
+  const comRobo = (robo: RoboConector, p: Partial<Connector> = {}) => conector({ robo, ...p })
+  const limite = CICLO_CRON_MIN * CICLOS_SEM_PULSO
+
+  it('(a) tenta e termina: afirma que sincroniza sozinho, agora que pode', () => {
+    // Começou há 3 min e terminou 8 s depois.
+    const s = situacaoConector(comRobo({ ultimaTentativa: minAtras(3), ultimoOk: new Date(AGORA - 3 * 60_000 + 8_000).toISOString(), rodadas: 10 }, { ultimoSync: minAtras(3) }), AGORA)
+    expect(s).toMatchObject({ tom: 'ok', robo: 'em_dia', titulo: 'O robô está sincronizando sozinho' })
+    expect(s?.texto).toContain('terminou há 3 min')
+  })
+
+  it('(a) relógio do worker um pouco à frente do banco não vira "morreu"', () => {
+    // Início pelo relógio do worker, fim pelo do banco: o fim pode "parecer" 20 s antes do início.
+    const s = situacaoConector(comRobo({ ultimaTentativa: minAtras(3), ultimoOk: new Date(AGORA - 3 * 60_000 - 20_000).toISOString(), rodadas: 10 }), AGORA)
+    expect(s?.robo).toBe('em_dia')
+  })
+
+  it('(b) tenta e não termina: diz que morre no meio, que nada se perde e onde ver o motivo', () => {
+    const s = situacaoConector(comRobo({ ultimaTentativa: minAtras(4), ultimoOk: minAtras(60 * 26), rodadas: 3 }, { ultimoSync: minAtras(1) }), AGORA)
+    expect(s).toMatchObject({ tom: 'warn', robo: 'morre', titulo: 'O robô começa, mas não termina' })
+    expect(s?.texto).toContain('começou há 4 min')
+    expect(s?.texto).toContain('a última que terminou bem foi há 1 d')
+    expect(s?.texto).toContain('continua de onde esta parou')
+    expect(s?.texto).toContain('Cloudflare')
+    expect(s?.texto).toContain('Logs')
+    // A mesma marca fica quando a rodada falhou com motivo e um clique no botão apagou o motivo do
+    // cartão: a frase não pode afirmar só "morreu", e aponta o log dos dois casos.
+    expect(s?.texto).toContain('não terminou bem')
+    expect(s?.texto).toContain('exceededCpu')
+    expect(s?.texto).toContain('sync.falha')
+    // Um clique recente no botão (ultimo_sync de 1 min) não esconde nada: o botão não é o robô.
+    expect(roboComProblema(s)).toBe(true)
+  })
+
+  it('(b) sem nenhuma rodada que tenha terminado bem', () => {
+    const s = situacaoConector(comRobo({ ultimaTentativa: minAtras(3), rodadas: 0 }), AGORA)
+    expect(s?.robo).toBe('morre')
+    expect(s?.texto).toContain('nenhuma rodada automática terminou bem')
+  })
+
+  it('rodada em andamento não é acusada de morrer antes da hora', () => {
+    const s = situacaoConector(comRobo({ ultimaTentativa: new Date(AGORA - 30_000).toISOString(), ultimoOk: minAtras(5), rodadas: 10 }), AGORA)
+    expect(s).toMatchObject({ tom: 'info', robo: 'lendo' })
+    expect(roboComProblema(s)).toBe(false)
+    // Passado o tempo de uma rodada, vira "morre".
+    const depois = situacaoConector(comRobo({ ultimaTentativa: minAtras(MINUTOS_RODADA + 1), ultimoOk: minAtras(5 + MINUTOS_RODADA + 1), rodadas: 10 }), AGORA)
+    expect(depois?.robo).toBe('morre')
+  })
+
+  it('(c) tentativa velha: o agendamento não está rodando, mesmo com o botão funcionando', () => {
+    // O cenário do incidente: o robô parou, o dono apertou o botão há 1 min e deu certo.
+    const s = situacaoConector(comRobo({ ultimaTentativa: minAtras(60 * 24), ultimoOk: minAtras(60 * 24), rodadas: 40 }, { ultimoSync: minAtras(1) }), AGORA)
+    expect(s).toMatchObject({ tom: 'erro', robo: 'parado', titulo: 'O robô não está rodando' })
+    expect(s?.texto).toContain('há 1 d')
+    expect(s?.texto).toContain('Trigger Events')
+    expect(s?.texto).toContain('Sincronizar agora')
+    expect(roboComProblema(s)).toBe(true)
+    // O limite é o limite: dentro dele, uma tentativa que terminou bem ainda é robô em dia.
+    const dentro = situacaoConector(comRobo({ ultimaTentativa: minAtras(limite - 1), ultimoOk: minAtras(limite - 1), rodadas: 40 }), AGORA)
+    expect(dentro?.robo).toBe('em_dia')
+    expect(situacaoConector(comRobo({ ultimaTentativa: minAtras(limite + 1), ultimoOk: minAtras(limite + 1), rodadas: 40 }), AGORA)?.robo).toBe('parado')
+  })
+
+  it('(c) nunca tentou, e a leitura que existe é antiga: não é paciência, é robô parado', () => {
+    const s = situacaoConector(comRobo({ rodadas: 0 }, { ultimoSync: minAtras(limite + 5) }), AGORA)
+    expect(s).toMatchObject({ robo: 'parado', tom: 'erro' })
+    expect(s?.texto).toContain('Nenhuma tentativa automática')
+  })
+
+  it('nunca tentou e acabou de conectar: pede um ciclo de paciência e diz quando desconfiar', () => {
+    const s = situacaoConector(comRobo({ rodadas: 0 }), AGORA)
+    expect(s).toMatchObject({ tom: 'info', robo: 'aguardando' })
+    expect(s?.texto).toContain(`${CICLO_CRON_MIN} minutos`)
+    expect(s?.texto).toContain(`${limite} minutos`)
+    expect(roboComProblema(s)).toBe(false)
+    // Leitura recente pelo botão logo depois de conectar também é "aguardando".
+    expect(situacaoConector(comRobo({ rodadas: 0 }, { ultimoSync: minAtras(2) }), AGORA)?.robo).toBe('aguardando')
+  })
+
+  it('erro gravado continua mandando: o motivo vem antes do diagnóstico do robô', () => {
+    const s = situacaoConector(comRobo({ ultimaTentativa: minAtras(2), ultimoOk: minAtras(60), rodadas: 5 }, { status: 'erro', ultimoErro: 'token inválido' }), AGORA)
+    expect(s).toMatchObject({ tom: 'erro', titulo: 'A última sincronização falhou', texto: 'Token inválido.' })
+    expect(s?.robo).toBeUndefined()
+  })
+
+  // O worker grava a falha do envio de estoque no mesmo `ultimo_erro`, com o prefixo "outbox:". A
+  // primeira rodada depois do conserto do cron é a primeira vez que o outbox roda em produção.
+  it('falha do envio de estoque não é chamada de falha da sincronização de pedidos', () => {
+    const s = situacaoConector(comRobo({ ultimaTentativa: minAtras(3), ultimoOk: minAtras(3), rodadas: 9 }, { status: 'erro', ultimoErro: 'outbox: warehouse_id não configurado no conector' }), AGORA)
+    expect(s).toMatchObject({ tom: 'erro', titulo: 'O envio de estoque para a plataforma falhou' })
+    expect(s?.texto).toContain('Outbox: warehouse_id não configurado no conector.')
+    expect(s?.texto).toContain('os pedidos continuam entrando')
+    // Sem leitura recente no diário do robô, não se afirma que os pedidos entram.
+    const semLeitura = situacaoConector(comRobo({ ultimaTentativa: minAtras(3), ultimoOk: minAtras(60 * 24), rodadas: 9 }, { status: 'erro', ultimoErro: 'outbox: catálogo fora' }), AGORA)
+    expect(semLeitura?.titulo).toBe('O envio de estoque para a plataforma falhou')
+    expect(semLeitura?.texto).not.toContain('continuam entrando')
+    expect(situacaoConector(conector({ status: 'erro', ultimoErro: 'outbox: x' }), AGORA)?.texto).not.toContain('continuam entrando')
+  })
+
+  it('desconectado não ganha diagnóstico de robô (o robô nem olha para ele)', () => {
+    expect(situacaoConector(comRobo({ ultimaTentativa: minAtras(60 * 24), rodadas: 1 }, { status: 'desconectado' }), AGORA)).toBeNull()
+  })
+
+  it('sem sync_state lido, vale o raciocínio antigo e nada se afirma sobre o robô', () => {
+    const s = situacaoConector(conector({ ultimoSync: minAtras(3) }), AGORA)
+    expect(s?.titulo).toBe('A última leitura deu certo')
+    expect(s?.robo).toBeUndefined()
   })
 })

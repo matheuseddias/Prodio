@@ -21,7 +21,8 @@ import type {
   Tenant,
   Unit,
 } from './types'
-import { diaISO as diaLocal, diaProducao } from './format'
+import { CAPACIDADES } from '../data/mapeadoresConectores'
+import { dataHoraBR, diaISO as diaLocal, diaProducao } from './format'
 
 const hoje = new Date()
 /** Hora de virada do tenant de demonstração; o dia dos dados de exemplo sai dela. */
@@ -254,12 +255,26 @@ export const nfes: NfeInbound[] = [
   ] },
 ]
 
+// Capacidades pela mesma tabela do banco real (data/mapeadoresConectores): a demonstração não pode
+// prometer mais do que o worker faz. O BaseLinker de exemplo tem o robô em dia.
+const minAtras = (min: number, seg = 0) => iso(new Date(hoje.getTime() - min * 60_000 + seg * 1000))
 export const connectors: Connector[] = [
-  { id: 'c1', plataforma: 'baselinker', nome: 'Base.com (BaseLinker)', status: 'conectado', ultimoSync: diasAtras(0, hoje.getHours()), cursor: 'date_confirmed_from=…', pedidos24h: 412, outboxPendentes: 3, capacidades: { pedidos: true, webhooks: false, catalogo: true, pushEstoque: true, pushCatalogo: true, nfeCompra: false } },
-  { id: 'c2', plataforma: 'bling', nome: 'Bling', status: 'desconectado', capacidades: { pedidos: true, webhooks: true, catalogo: true, pushEstoque: true, pushCatalogo: true, nfeCompra: true } },
-  { id: 'c3', plataforma: 'tiny', nome: 'Tiny / Olist', status: 'desconectado', capacidades: { pedidos: true, webhooks: false, catalogo: true, pushEstoque: true, pushCatalogo: true, nfeCompra: true } },
-  { id: 'c4', plataforma: 'omie', nome: 'Omie', status: 'desconectado', capacidades: { pedidos: true, webhooks: true, catalogo: true, pushEstoque: true, pushCatalogo: true, nfeCompra: true } },
-  { id: 'c5', plataforma: 'magis5', nome: 'Magis5', status: 'desconectado', capacidades: { pedidos: true, webhooks: false, catalogo: true, pushEstoque: false, pushCatalogo: true, nfeCompra: false } },
+  {
+    id: 'c1',
+    plataforma: 'baselinker',
+    nome: 'Base.com (BaseLinker)',
+    status: 'conectado',
+    ultimoSync: minAtras(3, 6),
+    cursor: `pedidos confirmados a partir de ${dataHoraBR(minAtras(150))}`,
+    pedidos24h: 412,
+    outboxPendentes: 3,
+    robo: { ultimaTentativa: minAtras(3), ultimoOk: minAtras(3, 6), rodadas: 288 },
+    capacidades: CAPACIDADES.baselinker,
+  },
+  { id: 'c2', plataforma: 'bling', nome: 'Bling', status: 'desconectado', capacidades: CAPACIDADES.bling },
+  { id: 'c3', plataforma: 'tiny', nome: 'Tiny / Olist', status: 'desconectado', capacidades: CAPACIDADES.tiny },
+  { id: 'c4', plataforma: 'omie', nome: 'Omie', status: 'desconectado', capacidades: CAPACIDADES.omie },
+  { id: 'c5', plataforma: 'magis5', nome: 'Magis5', status: 'desconectado', capacidades: CAPACIDADES.magis5 },
 ]
 
 export const outbox: OutboxItem[] = [

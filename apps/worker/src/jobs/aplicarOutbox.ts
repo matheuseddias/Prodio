@@ -4,6 +4,7 @@
 import type { Env } from '../env'
 import type { ConectorRow, Db, LoteOutbox } from '../db'
 import { montarConector } from '../conectores'
+import { redigirSegredos } from '../conectores/mensagens'
 import { ehUnsupported, type ResultadoPush } from '../conectores/tipos'
 import { log, mensagemErro } from '../log'
 import { desativarSeSemCredenciais } from './semCredenciais'
@@ -37,6 +38,19 @@ export function classificarResultados(lote: LoteOutbox[], resultados: ResultadoP
     else aplicados.push(...linha.ids)
   }
   return { aplicados, devolvidos, falha }
+}
+
+// `connectors.ultimo_erro` e `integration_outbox.erro` são legíveis por qualquer membro do tenant
+// (inclusive o tablet anônimo do chão de fábrica), e o log fica guardado no painel da Cloudflare.
+// Alguns adaptadores embutem pedaço da resposta crua da plataforma na mensagem de erro, então o texto
+// passa pelo mesmo filtro de segredos do sync (docs/arquitetura.md §5). Sem a credencial em mãos não
+// há o que procurar: aí vai uma frase fixa, e o detalhe cru não sai.
+async function semSegredos(row: ConectorRow, db: Pick<Db, 'getCredentials'>, texto: string): Promise<string> {
+  try {
+    return redigirSegredos(texto, await db.getCredentials(row.id))
+  } catch {
+    return 'a plataforma recusou o envio de estoque (não foi possível ler a credencial para mostrar o detalhe)'
+  }
 }
 
 export async function aplicarOutboxConector(row: ConectorRow, db: Db, montar: MontarConector): Promise<Omit<ResumoOutbox, 'conectores'>> {
@@ -73,7 +87,10 @@ export async function aplicarOutboxConector(row: ConectorRow, db: Db, montar: Mo
   }
   const { aplicados, devolvidos, falha } = classificarResultados(lote, resultados, dryRun)
   await db.applyOutboxResult(aplicados, true, null)
-  if (falha) await db.applyOutboxResult(falha.ids, false, falha.erro)
+  if (falha) {
+    falha.erro = await semSegredos(row, db, falha.erro)
+    await db.applyOutboxResult(falha.ids, false, falha.erro)
+  }
   await db.requeueOutbox(devolvidos)
   parcial.aplicados = aplicados.length
   parcial.devolvidos = devolvidos.length
@@ -101,7 +118,7 @@ export async function aplicarOutbox(env: Env, db: Db, montar: MontarConector = (
     } catch (e) {
       // Sem credencial nenhuma: desativa (o lote já voltou para 'pendente' e espera a reconexão).
       if (await desativarSeSemCredenciais(row, db, e)) continue
-      const erro = mensagemErro(e)
+      const erro = await semSegredos(row, db, mensagemErro(e))
       log('error', 'outbox.falha', { connector: row.id, tenant: row.tenant_id, erro })
       try {
         await db.setSyncState(row.id, null, false, `outbox: ${erro}`)

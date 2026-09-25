@@ -32,7 +32,8 @@ function dbFalso(id = CONECTOR) {
     getCredentials: vi.fn(async () => ({ client_id: 'cid', client_secret: 'csecret' })),
     setCredentials: vi.fn(async () => {}),
     setSyncState: vi.fn(async () => {}),
-  } as unknown as Db & { setCredentials: ReturnType<typeof vi.fn> }
+    marcarCredencialNova: vi.fn(async () => {}),
+  } as unknown as Db & { setCredentials: ReturnType<typeof vi.fn>; setSyncState: ReturnType<typeof vi.fn>; marcarCredencialNova: ReturnType<typeof vi.fn> }
 }
 
 const stateValido = async (id = CONECTOR, nonce = novoNonce()) => ({
@@ -106,6 +107,17 @@ describe('GET /connectors/tiny/oauth/callback', () => {
     expect(html).not.toContain(ACCESS_DA_VITIMA)
     expect(html).not.toContain('csecret')
     expect(html).not.toContain('code-da-vitima')
+  })
+
+  // Autorizar não é sincronizar. Antes o callback chamava worker_set_sync_state(ok): gravava
+  // ultimo_sync ("Último sync: agora") e o diário do robô, e o cartão afirmava "O robô está
+  // sincronizando sozinho" sem o robô ter rodado uma vez.
+  it('caminho normal: não escreve no diário do robô nem finge uma sincronização', async () => {
+    const db = dbFalso()
+    const { state, nonce } = await stateValido()
+    await rotaOauthCallback(voltarDe(state, `${COOKIE_VINCULO}=${nonce}`), env, 'tiny', db)
+    expect(db.setSyncState).not.toHaveBeenCalled()
+    expect(db.marcarCredencialNova).toHaveBeenCalledWith(CONECTOR, 't1')
   })
 
   it('REPLAY: o cookie é apagado no fim, então o mesmo state não serve para um segundo code', async () => {

@@ -12,6 +12,7 @@ import {
   type Cursor,
   type DeltaEstoque,
   type ItemCatalogo,
+  type PaginaPedidos,
   type PedidoNormalizado,
   type ResultadoPush,
   type SaldoHub,
@@ -20,6 +21,8 @@ import {
 export const URL_BASELINKER = 'https://api.baselinker.com/connector.php'
 export const LIMITE_PEDIDOS = 100
 export const SOBREPOSICAO_S = 2 * 3600
+// Teto de pullOrders (a leitura "de uma vez", fora do cron). O cron não usa: ele lê página por
+// página com o teto de jobs/syncPedidos.ts (paginas_por_rodada).
 const MAX_PAGINAS = 20
 const INTERVALO_MS = 650 // < 100 req/min com folga
 
@@ -83,7 +86,8 @@ export function normalizarPedidoBaseLinker(p: PedidoBL): PedidoNormalizado {
     updatedAt: unixParaIso(p.date_status_change ?? p.date_confirmed ?? p.date_add),
     total: Math.round(total * 100) / 100,
     itens,
-    raw: p,
+    // Sem `raw`: o pedido inteiro do BaseLinker (endereço, pagamento, dezenas de campos) não é lido
+    // por ninguém no Prodio e custava uma serialização a mais por pedido em cada rodada do cron.
   }
 }
 
@@ -131,31 +135,108 @@ export class ConectorBaseLinker implements Conector {
     return dados
   }
 
-  // Pagina por date_confirmed: avança para o último +1 dentro da rodada; o cursor persistido
-  // volta 2 h para não perder pedidos com o mesmo segundo na borda da página (upsert é idempotente).
-  async pullOrders(cursor: Cursor | null): Promise<{ pedidos: PedidoNormalizado[]; cursor: Cursor }> {
-    const dias = this.config.dias_iniciais ?? 3
-    const inicio = Math.floor(this.agora() / 1000) - dias * 86400
-    let desde = Number(cursor?.date_confirmed_from ?? inicio)
-    if (!Number.isFinite(desde) || desde <= 0) desde = inicio
-    const pedidos: PedidoNormalizado[] = []
-    let maior = desde
-    for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
-      const r = await this.chamar<RespostaBL & { orders?: PedidoBL[] }>('getOrders', {
-        date_confirmed_from: desde,
-        get_unconfirmed_orders: false,
-      })
-      const lote = r.orders ?? []
-      for (const p of lote) {
-        pedidos.push(normalizarPedidoBaseLinker(p))
-        maior = Math.max(maior, Number(p.date_confirmed ?? 0))
-      }
-      if (lote.length < LIMITE_PEDIDOS) break
-      desde = maior + 1
+  // Uma página de getOrders: até 100 pedidos confirmados com date_confirmed >= date_confirmed_from,
+  // em ordem crescente de date_confirmed (a documentação do BaseLinker manda paginar pelo
+  // date_confirmed do último pedido lido).
+  //
+  // O CURSOR DEVOLVIDO É GRAVADO PELO CRON DEPOIS DE CADA PÁGINA, então ele nunca pode passar à
+  // frente de um pedido não lido. As três regras, e por que cada uma existe:
+  //  • Página cheia (há mais): continua do MAIOR date_confirmed desta página, inclusive. A
+  //    documentação sugere "+1 segundo", mas aí os pedidos que dividem esse último segundo e ficaram
+  //    para a página seguinte seriam pulados. Relê-se o segundo da borda; o upsert é idempotente.
+  //    Caso extremo: a página inteira caiu num segundo só (100 ou mais pedidos confirmados no mesmo
+  //    segundo — uma importação em massa de um canal novo faz isso). Reler dali não anda, e o "+1"
+  //    da versão anterior pulava o resto daquele segundo em silêncio. Agora o cursor ganha `id_from`
+  //    e as páginas seguintes percorrem o segundo por número de pedido (lerDentroDoSegundo).
+  //  • Página incompleta (em dia): volta SOBREPOSICAO_S antes do maior lido. A documentação garante
+  //    que um pedido não "salta" para dentro da base com data de confirmação anterior à dos já
+  //    confirmados; a sobreposição cobre o que ela não cobre (relógio, pedido gravado no mesmo
+  //    segundo logo depois da leitura, e as mudanças de status das últimas 2 h). Página vazia não
+  //    mexe no ponto (a versão anterior recuava mais 2 h a cada rodada vazia).
+  //  • Sem piso: `dias_iniciais` só vale quando NÃO há cursor. Um cursor antigo (robô parado dias) é
+  //    drenado inteiro, em várias rodadas. A versão anterior, ao bater no teto de páginas com o
+  //    cursor ainda velho, saltava para "3 dias atrás" e perdia o meio.
+  async pullOrdersPagina(cursor: Cursor | null): Promise<PaginaPedidos> {
+    const agoraS = Math.floor(this.agora() / 1000)
+    const inicio = agoraS - (this.config.dias_iniciais ?? 3) * 86400
+    const gravado = Math.floor(Number(cursor?.date_confirmed_from))
+    // Cursor no futuro (relógio torto) não lê nada até o futuro chegar; reler desde agora é seguro.
+    const desde = Number.isFinite(gravado) && gravado > 0 ? Math.min(gravado, agoraS) : inicio
+    // `id_from` só vale para o segundo exato em que foi anotado (não para um cursor corrigido acima).
+    const idFrom = Math.floor(Number(cursor?.id_from))
+    if (desde === gravado && Number.isFinite(idFrom) && idFrom > 0) return this.lerDentroDoSegundo(desde, idFrom)
+    const r = await this.chamar<RespostaBL & { orders?: PedidoBL[] }>('getOrders', {
+      date_confirmed_from: desde,
+      get_unconfirmed_orders: false,
+    })
+    const lote = r.orders ?? []
+    let maior = 0
+    for (const p of lote) {
+      const confirmado = Number(p.date_confirmed)
+      if (Number.isFinite(confirmado) && confirmado > maior) maior = confirmado
     }
-    const proximo = Math.max(inicio, maior - SOBREPOSICAO_S)
-    log('info', 'baselinker.pullOrders', { pedidos: pedidos.length, cursor: proximo })
-    return { pedidos, cursor: { date_confirmed_from: proximo } }
+    const pedidos = lote.map(normalizarPedidoBaseLinker)
+    if (lote.length >= LIMITE_PEDIDOS) {
+      if (maior > desde) return this.pagina(desde, pedidos, { date_confirmed_from: maior }, false)
+      return this.pagina(desde, pedidos, this.depoisDoSegundo(desde, lote, 0), false)
+    }
+    return this.pagina(desde, pedidos, { date_confirmed_from: maior > 0 ? maior - SOBREPOSICAO_S : desde }, true)
+  }
+
+  // O segundo `segundo` tem 100 ou mais pedidos confirmados: continua nele pelo número do pedido
+  // (`id_from` junto com `date_confirmed_from`). A página traz primeiro o que falta daquele segundo,
+  // em ordem de order_id, e depois os segundos seguintes.
+  private async lerDentroDoSegundo(segundo: number, idFrom: number): Promise<PaginaPedidos> {
+    const r = await this.chamar<RespostaBL & { orders?: PedidoBL[] }>('getOrders', {
+      date_confirmed_from: segundo,
+      id_from: idFrom,
+      get_unconfirmed_orders: false,
+    })
+    const lote = r.orders ?? []
+    const pedidos = lote.map(normalizarPedidoBaseLinker)
+    // Garantia contra a API não fazer o que a documentação diz: um pedido abaixo do id pedido (ou
+    // antes do segundo) quer dizer que o filtro foi ignorado, e insistir repetiria a mesma página
+    // para sempre. Aí não há como percorrer o segundo: anda +1 e grita no log (error, não warn).
+    const fora = lote.some((p) => !(Number(p.order_id) >= idFrom) || !(Number(p.date_confirmed) >= segundo))
+    if (fora) {
+      log('error', 'baselinker.segundoLotado', { segundo, idFrom, pedidos: lote.length, motivo: 'a API ignorou id_from; o resto deste segundo pode ter ficado para trás' })
+      return this.pagina(segundo, pedidos, { date_confirmed_from: segundo + 1 }, false)
+    }
+    const todosNoSegundo = lote.every((p) => Number(p.date_confirmed) === segundo)
+    if (lote.length >= LIMITE_PEDIDOS && todosNoSegundo) return this.pagina(segundo, pedidos, this.depoisDoSegundo(segundo, lote, idFrom), false)
+    // O segundo acabou: a resposta passou dele, ou veio incompleta. Não é "fim": pedidos de segundos
+    // seguintes com número menor que idFrom ficaram de fora desta consulta e vêm na próxima.
+    return this.pagina(segundo, pedidos, { date_confirmed_from: segundo + 1 }, false)
+  }
+
+  // Próximo ponto dentro de um segundo lotado: o maior order_id lido + 1. Sem número utilizável (a
+  // API mudou), não há como continuar no segundo sem ficar preso: anda +1 e grita no log.
+  private depoisDoSegundo(segundo: number, lote: PedidoBL[], idFrom: number): Cursor {
+    const maiorId = lote.reduce((m, p) => Math.max(m, Number(p.order_id)), 0)
+    if (Number.isFinite(maiorId) && maiorId >= idFrom) {
+      log('warn', 'baselinker.segundoCheio', { segundo, pedidos: lote.length, idFrom: maiorId + 1 })
+      return { date_confirmed_from: segundo, id_from: maiorId + 1 }
+    }
+    log('error', 'baselinker.segundoLotado', { segundo, pedidos: lote.length, motivo: 'pedidos sem order_id numérico; o resto deste segundo pode ter ficado para trás' })
+    return { date_confirmed_from: segundo + 1 }
+  }
+
+  private pagina(desde: number, pedidos: PedidoNormalizado[], cursor: Cursor, fim: boolean): PaginaPedidos {
+    log('info', 'baselinker.pagina', { desde, pedidos: pedidos.length, proximo: cursor, fim })
+    return { pedidos, cursor, fim }
+  }
+
+  // Leitura "de uma vez" (até MAX_PAGINAS), pelas mesmas páginas e com o mesmo cursor seguro.
+  async pullOrders(cursor: Cursor | null): Promise<{ pedidos: PedidoNormalizado[]; cursor: Cursor }> {
+    const pedidos: PedidoNormalizado[] = []
+    let atual: Cursor | null = cursor
+    for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
+      const p = await this.pullOrdersPagina(atual)
+      pedidos.push(...p.pedidos)
+      atual = p.cursor
+      if (p.fim) break
+    }
+    return { pedidos, cursor: atual ?? {} }
   }
 
   async pullOrder(externalId: string): Promise<PedidoNormalizado | null> {

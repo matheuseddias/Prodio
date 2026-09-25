@@ -230,7 +230,7 @@ export function normalizarPedidoTiny(p: PedidoTinyDetalhe, agoraIso: string): Pe
       nome: it.produto?.descricao ?? it.descricao,
       produtoExternoId: it.produto?.id === undefined ? undefined : String(it.produto.id),
     })),
-    raw: p,
+    // Sem `raw`: ninguém lê orders.raw, e o pedido inteiro custava CPU do cron e espaço no banco.
   }
 }
 

@@ -272,9 +272,23 @@ export interface Connector {
    * de um robô que parou, e sem ele a tela só sabe dizer "—".
    */
   ultimoErro?: string
+  /**
+   * `sync_state.cursor` em texto para gente ler: de onde o robô continua a leitura. Não é
+   * `connectors.config.cursor`, que ninguém grava.
+   */
   cursor?: string
+  /**
+   * Pedidos do conector com `confirmed_at` nas últimas 24 h que já estão no Prodio (contagem em
+   * `orders`). Ausente quando a contagem não foi feita, e aí a tela mostra "—" em vez de zero.
+   */
   pedidos24h?: number
   outboxPendentes?: number
+  /**
+   * O que só o ROBÔ do worker (cron de 5 min) grava, lido de `sync_state`. O botão "Sincronizar
+   * agora" não escreve lá; `ultimoSync` conta o robô e o botão juntos. Ausente quando a tela não
+   * conseguiu ler: aí ela não afirma nada sobre o robô.
+   */
+  robo?: RoboConector
   capacidades: {
     pedidos: boolean
     webhooks: boolean
@@ -283,6 +297,16 @@ export interface Connector {
     pushCatalogo: boolean // enviar produtos do Prodio para o ERP/hub
     nfeCompra: boolean
   }
+}
+
+/** `sync_state` de um conector. Sem linha no banco, os dois instantes ficam vazios e `rodadas` é 0. */
+export interface RoboConector {
+  /** `last_run_at`: início da última tentativa do robô, gravado antes de ele falar com a plataforma. */
+  ultimaTentativa?: string
+  /** `last_ok_at`: fim da última tentativa do robô que terminou bem. */
+  ultimoOk?: string
+  /** `runs`: tentativas que terminaram, bem ou com falha tratada. Rodada morta no meio não conta. */
+  rodadas: number
 }
 
 export interface OutboxItem {

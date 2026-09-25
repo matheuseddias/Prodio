@@ -122,13 +122,11 @@ Quando `app.prodio.com.br` estiver no ar, volte ao passo 4 e ajuste o Site URL d
 
 ## 6. Liberar o endereço da interface no worker (`CORS_ORIGENS`)
 
-As telas que falam com o worker (upload de XML, credenciais de conector, "Testar conexão") só funcionam se o worker liberar a origem do site. Isso é variável do **worker**, não do Pages:
+As telas que falam com o worker (upload de XML, credenciais de conector, "Testar conexão") só funcionam se o worker liberar a origem do site. Isso é variável do **worker**, não do Pages, e mora em `[vars]` do `apps/worker/wrangler.toml`, que vai junto em todo `pnpm deploy:worker`. Não grave como segredo nem no painel: o `wrangler deploy` substitui as variáveis do painel pelas do arquivo. Para mudar a lista, edite o arquivo e publique o worker de novo:
 
-```bash
-cd apps/worker
-wrangler secret put CORS_ORIGENS
-# cole numa linha só, separado por vírgula:
-# https://app.prodio.com.br,https://prodio-web.pages.dev,https://*.prodio-web.pages.dev,http://localhost:5173
+```toml
+[vars]
+CORS_ORIGENS = "https://app.prodio.com.br,https://prodio-web.pages.dev,https://*.prodio-web.pages.dev,http://localhost:5173"
 ```
 
 | Item da lista | Para quê |
@@ -140,7 +138,7 @@ wrangler secret put CORS_ORIGENS
 
 O worker devolve a origem exata que chamou, **nunca `*`**: essas rotas recebem o token do usuário no header `Authorization`, e `*` com credencial de portador convidaria qualquer site a usar o token de quem está logado no Prodio. Origem fora da lista não recebe cabeçalho de CORS nenhum e o navegador barra a chamada.
 
-Sem `CORS_ORIGENS` configurada só `localhost` passa, e a interface publicada falha com erro de CORS (o resto do sistema continua funcionando, porque fala direto com o Supabase). Quando acontecer, o log do worker mostra a origem recusada em `cors.origemRecusada`. Detalhes em `apps/worker/README.md`.
+Sem `CORS_ORIGENS` só `localhost` passa, e a interface publicada falha com erro de CORS (o resto do sistema continua funcionando, porque fala direto com o Supabase). Quando acontecer, o log do worker mostra a origem recusada em `cors.origemRecusada`. Detalhes em `apps/worker/README.md`.
 
 Para conferir depois de publicar o worker (troque pelo endereço dele):
 

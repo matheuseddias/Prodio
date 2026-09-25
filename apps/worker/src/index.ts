@@ -70,6 +70,34 @@ export async function rodarCron(expressao: string | undefined, env: Env): Promis
   await aplicarOutbox(env, db)
 }
 
+// O que scheduled() faz: ESPERA o trabalho e só então devolve. Erro é capturado e logado aqui.
+//
+// POR QUE NÃO É MAIS `ctx.waitUntil(...)` E RETORNA NA HORA (incidente de 25/09/2026): o cron
+// ficou 24 h sem gravar nada no banco enquanto o botão "Sincronizar agora" funcionava. Com o
+// handler devolvendo na hora, a invocação "termina" no primeiro milissegundo e o trabalho passa a
+// viver só do waitUntil, que a Cloudflare corta 30 s depois do fim da invocação ("waitUntil has a
+// 30-second time limit after invocation end" — developers.cloudflare.com/workers/runtime-apis/
+// context/). A leitura da janela inteira (até 20 páginas a 650 ms uma da outra, mais o upsert)
+// passa disso com facilidade, e o cancelamento não passa por catch nenhum: nada gravado, nem
+// sucesso nem erro. É a explicação que bate com tudo o que se viu — o botão funcionava porque
+// segurava a requisição por 20 s antes de cair no waitUntil (20 s + 30 s) —, mas o incidente não
+// deixou log para confirmar; por isso os logs agora são persistidos (wrangler.toml, [observability]).
+// Os outros suspeitos (CPU do plano Free, fetch pendurado) estão tratados em jobs/syncPedidos.ts e
+// http.ts.
+// A documentação do handler diz o contrário do que fazíamos: "The runtime waits for the promise
+// returned by the scheduled() handler to resolve (up to the 15-minute duration limit). You do not
+// need to use waitUntil() for the runtime to wait for a single asynchronous task."
+// (developers.cloudflare.com/workers/runtime-apis/handlers/scheduled/). O CPU continua limitado
+// (10 ms no Free, 30 s no pago para crons de 5 min); isso é tratado em jobs/syncPedidos.ts com
+// rodadas curtas e progresso gravado página a página.
+export async function executarCron(expressao: string | undefined, env: Env, rodar: typeof rodarCron = rodarCron): Promise<void> {
+  try {
+    await rodar(expressao, env)
+  } catch (e) {
+    log('error', 'cron.falha', { cron: expressao, erro: mensagemErro(e) })
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url)
@@ -92,8 +120,9 @@ export default {
       return comCors(erro(500, 'erro interno'), origem)
     }
   },
-  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(rodarCron(controller.cron, env).catch((e) => log('error', 'cron.falha', { cron: controller.cron, erro: mensagemErro(e) })))
+  // `return`, não waitUntil: ver executarCron.
+  async scheduled(controller: ScheduledController, env: Env): Promise<void> {
+    return executarCron(controller.cron, env)
   },
   email,
 } satisfies ExportedHandler<Env>

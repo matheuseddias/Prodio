@@ -13,9 +13,10 @@
 // caminho de rota ou um cabeçalho de qualquer um dos lados quebra este teste — que é exatamente o
 // lugar onde a gente quer descobrir, e não no navegador do dono.
 /// <reference types="node" />
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { CAPACIDADES, DECLARADO_SEM_USO, SEM_CAPACIDADE, type Capacidade } from '../../data/mapeadoresConectores'
 import { CAMPOS, OAUTH, TEM_ADAPTADOR, separar } from './ConectorCampos'
 import type { Plataforma } from './ConectorMeta'
 
@@ -189,5 +190,66 @@ describe('contrato: cabeçalhos (o preflight barra o que não estiver na lista)'
   it('o token vai no header, nunca em cookie (o worker não manda Allow-Credentials)', () => {
     expect(semComentarios(FONTE.clienteHttp)).not.toMatch(/credentials:\s*'include'/)
     expect(semComentarios(FONTE.cors)).not.toMatch(/Allow-Credentials/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Capacidades: os chips do cartão do conector contra o que cada adaptador do worker declara
+// ---------------------------------------------------------------------------
+//
+// O cartão do BaseLinker mostrava "✓ Enviar catálogo" com `pushCatalogo: false` no adaptador: a
+// interface tinha um mapa próprio, escrito à mão, que ninguém conferia. Aqui o lado do worker é lido
+// do fonte (`export const CAPACIDADES_X`), como o resto deste arquivo.
+
+/** `export const CAPACIDADES_<PLATAFORMA>` do adaptador, como objeto. */
+function capacidadesDoWorker(p: string): Record<string, boolean> {
+  const nome = `CAPACIDADES_${p.toUpperCase()}`
+  const src = semComentarios(ler(`apps/worker/src/conectores/${p}.ts`))
+  const bloco = new RegExp(`export const ${nome}\\b[^=]*=\\s*\\{([^}]*)\\}`).exec(src)
+  expect(bloco, `não achei ${nome} em apps/worker/src/conectores/${p}.ts`).not.toBeNull()
+  return Object.fromEntries([...bloco![1].matchAll(/(\w+):\s*(true|false)/g)].map((m) => [m[1], m[2] === 'true']))
+}
+
+/** O método do adaptador que um job ou rota precisa chamar para a capacidade existir de fato. */
+const METODO: Partial<Record<Capacidade, string>> = { nfeCompra: 'findInboundNfe' }
+
+/** Fonte do worker fora dos adaptadores e dos testes: jobs, rotas, cron, e-mail. */
+function fonteQueUsaAdaptadores(): string {
+  const dir = `${RAIZ}apps/worker/src/`
+  return (readdirSync(dir, { recursive: true }) as string[])
+    .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && !f.endsWith('.d.ts') && !f.replaceAll('\\', '/').startsWith('conectores/'))
+    .map((f) => semComentarios(readFileSync(`${dir}${f}`, 'utf8')))
+    .join('\n')
+}
+
+describe('contrato: capacidades (os chips do cartão do conector)', () => {
+  it.each(COM_ADAPTADOR)('%s: o chip é o que o worker declara, menos o que ele declara e ainda não usa', (p) => {
+    const worker = capacidadesDoWorker(p)
+    // Capacidade nova de um lado só também quebra aqui.
+    expect(Object.keys(worker).sort(), `as chaves de ${p} divergem`).toEqual(Object.keys(CAPACIDADES[p]).sort())
+    const semUso = DECLARADO_SEM_USO[p] ?? []
+    for (const k of Object.keys(worker) as Capacidade[]) {
+      const esperado = worker[k] && !semUso.includes(k)
+      expect(CAPACIDADES[p][k], `${p}.${k}: o worker declara ${worker[k]}${semUso.includes(k) ? ' (sem uso)' : ''} e a tela mostra ${CAPACIDADES[p][k]}`).toBe(esperado)
+    }
+  })
+
+  it('toda exceção "declarado e sem uso" ainda vale — quando o worker passar a usar, o chip volta', () => {
+    const fonte = fonteQueUsaAdaptadores()
+    // Guarda contra a leitura acima achar nada e o teste virar vácuo.
+    expect(fonte).toContain('pushFinishedStock(')
+    for (const [p, caps] of Object.entries(DECLARADO_SEM_USO)) {
+      for (const k of caps ?? []) {
+        expect(capacidadesDoWorker(p)[k], `${p} já não declara ${k}: tire a exceção de DECLARADO_SEM_USO`).toBe(true)
+        const metodo = METODO[k]
+        expect(metodo, `diga em METODO qual método do adaptador faz ${k} existir`).toBeTruthy()
+        expect(ler(`apps/worker/src/conectores/${p}.ts`), `${p} nem implementa ${metodo}`).toContain(`${metodo}(`)
+        expect(fonte, `o worker passou a chamar ${metodo}: tire ${p}.${k} de DECLARADO_SEM_USO e mostre o chip`).not.toContain(`.${metodo}(`)
+      }
+    }
+  })
+
+  it('plataforma sem adaptador no worker não mostra chip nenhum', () => {
+    for (const p of PLATAFORMAS.filter((x) => !TEM_ADAPTADOR[x])) expect(CAPACIDADES[p], p).toEqual(SEM_CAPACIDADE)
   })
 })

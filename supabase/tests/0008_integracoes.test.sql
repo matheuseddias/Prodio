@@ -170,6 +170,25 @@ begin
   perform public.worker_set_sync_state(v_c, '{"page": 2}', true, null);
   if (select status from public.connectors where id = v_c) <> 'conectado' or (select ultimo_erro from public.connectors where id = v_c) is not null then raise exception 'sucesso deveria reconectar'; end if;
 
+  -- O worker grava o pulso (last_run_at, antes de ler a plataforma) e o cursor de cada página DIRETO
+  -- em sync_state, pelo upsert do PostgREST (Db.marcarPulso / Db.gravarCursor), sem RPC. Isto trava
+  -- o que ele depende: service_role escreve em sync_state; o pulso só mexe em last_run_at; o cursor
+  -- só em cursor; e a RPC do fim da rodada, com cursor nulo, mantém o cursor gravado por página.
+  insert into public.sync_state (connector_id, tenant_id, last_run_at, updated_at) values (v_c, v_t, '2026-09-25 12:00:00+00', now())
+    on conflict (connector_id) do update set last_run_at = excluded.last_run_at, updated_at = excluded.updated_at;
+  if (select last_run_at from public.sync_state where connector_id = v_c) <> '2026-09-25 12:00:00+00'::timestamptz then raise exception 'pulso deveria gravar last_run_at'; end if;
+  if (select cursor from public.sync_state where connector_id = v_c) <> '{"page": 2}'::jsonb or (select runs from public.sync_state where connector_id = v_c) <> 3
+     or (select last_ok_at from public.sync_state where connector_id = v_c) is null then raise exception 'pulso não pode mexer em cursor, runs nem last_ok_at'; end if;
+  if (select status from public.connectors where id = v_c) <> 'conectado' then raise exception 'pulso não pode mexer no cartão'; end if;
+  insert into public.sync_state (connector_id, tenant_id, cursor, updated_at) values (v_c, v_t, '{"date_confirmed_from": 123}', now())
+    on conflict (connector_id) do update set cursor = excluded.cursor, updated_at = excluded.updated_at;
+  perform public.worker_set_sync_state(v_c, null, true, null);
+  if (select cursor from public.sync_state where connector_id = v_c) <> '{"date_confirmed_from": 123}'::jsonb then raise exception 'fim da rodada deveria manter o cursor gravado por página'; end if;
+  -- Botão "Sincronizar agora": marca só o cartão, direto em connectors (Db.marcarRodadaManual), e
+  -- nunca ressuscita conector desconectado.
+  update public.connectors set status = 'conectado', ultimo_erro = null, ultimo_sync = '2026-09-25 12:05:00+00' where id = v_c and tenant_id = v_t and status <> 'desconectado';
+  if (select ultimo_sync from public.connectors where id = v_c) <> '2026-09-25 12:05:00+00'::timestamptz then raise exception 'service_role deveria marcar o cartão'; end if;
+
   -- hub e auditoria
   if public.worker_upsert_hub_stock(v_t, v_c, '[{"sku":"ED-PA","saldo":40},{"sku":"PB","saldo":7},{"sku":"NOPE","saldo":1}]') <> 2 then raise exception 'hub deveria gravar 2'; end if;
   if (select saldo_hub from public.hub_stock_snapshots where product_id = '30000000-0000-0000-0000-000000000051') <> 40 then raise exception 'snapshot de PA'; end if;
@@ -200,6 +219,12 @@ begin
   if (select vendido_14d from public.v_demand_by_sku where sku = 'PB') <> 3 or (select carteira from public.v_demand_by_sku where sku = 'PB') <> 3 then raise exception 'v_demand_by_sku de PB'; end if;
   if (select vendido_14d from public.v_demand_by_sku where sku = 'PA') <> 0 then raise exception 'v_demand_by_sku de PA deveria ser 0 (enviado)'; end if;
   if (select count(*) from public.sync_state where connector_id = v_c) <> 1 then raise exception 'admin deveria ler sync_state'; end if;
+  -- A interface lê o pulso (last_run_at) e o cursor, mas não escreve: sync_state é do worker.
+  if (select last_run_at from public.sync_state where connector_id = v_c) is null then raise exception 'admin deveria ler o pulso'; end if;
+  begin
+    update public.sync_state set last_run_at = now() where connector_id = v_c;
+    raise exception 'authenticated não pode escrever em sync_state';
+  exception when insufficient_privilege then null; end;
   perform public.disconnect_connector(v_t, v_c);
   if (select status from public.connectors where id = v_c) <> 'desconectado' then raise exception 'deveria desconectar'; end if;
   if (select status from public.integration_outbox where connector_id = v_c and dedupe_key = 'scan:3') <> 'ignorado' then raise exception 'outbox com erro deveria virar ignorado'; end if;

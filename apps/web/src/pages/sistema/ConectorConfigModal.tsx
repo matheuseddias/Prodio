@@ -4,7 +4,7 @@ import { useAuth } from '../../app/auth'
 import { desconectarConector, garantirConector, lerConfigConector, lerStatusConector, lerStatusMap, salvarStatusMap, testarConector } from '../../data/conectores'
 import { mensagemErro } from '../../data/erros'
 import { ErroWorker } from '../../data/worker'
-import { dataHoraBR, horaBR, relativo } from '../../domain/format'
+import { dataHoraBR, horaBR, num, relativo } from '../../domain/format'
 import { useStore } from '../../domain/store'
 import type { Connector } from '../../domain/types'
 import { Badge, Button, Field, Input, Modal, Select, Tabs, Toggle } from '../../ui'
@@ -15,6 +15,7 @@ import { HISTORICO_SYNC, META, SIGNIFICADOS, STATUS_PLATAFORMA, type Significado
 type AbaCfg = 'pedidos' | 'catalogo' | 'estoque' | 'sync' | 'desconectar'
 
 const mapaPadrao = (p: Connector['plataforma']): Record<string, Significado> => Object.fromEntries(STATUS_PLATAFORMA[p].map((s) => [s.nome, s.padrao]))
+const quando = (iso: string | undefined, vazio: string) => (iso ? `${dataHoraBR(iso)} (${relativo(iso)})` : vazio)
 
 // ---------- Modal de configuração ----------
 export function ConectorConfigModal({ c, onClose }: { c: Connector; onClose: () => void }) {
@@ -84,7 +85,7 @@ export function ConectorConfigModal({ c, onClose }: { c: Connector; onClose: () 
         const id = await garantirConector(c, tenantId, { push_estoque: pushOn, dry_run: dryRun })
         await salvarStatusMap(tenantId, id, mapa)
         setMapaSalvo(true)
-        // `setConnector` grava o status junto (mapeadoresCadastros.connectorConfigParaBanco). O
+        // `setConnector` grava o status junto (mapeadoresConectores.connectorConfigParaBanco). O
         // status de verdade é o que o worker carimbou; reler evita que salvar uma preferência
         // ressuscite um status antigo da tela.
         status = (await lerStatusConector(id)) ?? c.status
@@ -245,8 +246,9 @@ export function ConectorConfigModal({ c, onClose }: { c: Connector; onClose: () 
             <Field label="Intervalo de leitura" hint={c.plataforma === 'bling' ? 'Leituras por API contam no limite do plano do Bling.' : m.webhooks}>
               <Input readOnly value="a cada 5 min (cron do worker)" className="bg-surface-2" />
             </Field>
-            <Field label="Cursor atual" hint="Ponto de onde o próximo sync continua.">
-              <Input readOnly value={c.cursor ?? '—'} className="font-mono bg-surface-2" />
+            {/* sync_state.cursor, que só o robô grava (o botão lê a partir dele, mas não o move). */}
+            <Field label="Cursor atual" hint="De onde o robô continua a leitura. Fica um pouco antes do pedido mais novo, de propósito; bem mais antigo que isso quer dizer fila atrasada.">
+              <Input readOnly value={c.cursor ?? (c.robo ? 'o robô ainda não gravou' : '—')} className="bg-surface-2" />
             </Field>
           </div>
           {/* Forçar sync agora é POST /connectors/:id/sync, e o botão dele está no cartão do
@@ -254,8 +256,19 @@ export function ConectorConfigModal({ c, onClose }: { c: Connector; onClose: () 
               Aqui só se diz onde ele está, para ninguém procurar um botão que foi para outra tela. */}
           <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2 text-[13px]">
             <span className="text-muted">A sincronização roda sozinha no worker, a cada 5 minutos. Para rodar agora, use “Sincronizar agora” no cartão do conector.</span>
-            <span className="font-medium">Último: {c.ultimoSync ? `${dataHoraBR(c.ultimoSync)} (${relativo(c.ultimoSync)})` : 'ainda não rodou'}</span>
+            <span className="font-medium">Última leitura (robô ou botão): {quando(c.ultimoSync, 'ainda não rodou')}</span>
           </div>
+          {/* O diário do robô (sync_state). O botão não escreve aqui: é o que diz se o cron está vivo. */}
+          {c.robo && (
+            <dl className="grid gap-x-4 gap-y-1 text-[13px] sm:grid-cols-[auto_1fr]">
+              <dt className="text-muted">Última tentativa do robô</dt>
+              <dd className="font-medium">{quando(c.robo.ultimaTentativa, 'nenhuma registrada')}</dd>
+              <dt className="text-muted">Última rodada do robô que terminou bem</dt>
+              <dd className="font-medium">{quando(c.robo.ultimoOk, 'nenhuma ainda')}</dd>
+              <dt className="text-muted">Rodadas do robô que terminaram</dt>
+              <dd className="font-medium tabular-nums">{num(c.robo.rodadas)}</dd>
+            </dl>
+          )}
           {modoApp === 'supabase' && (
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-3">
@@ -275,7 +288,7 @@ export function ConectorConfigModal({ c, onClose }: { c: Connector; onClose: () 
             {/* Com banco de verdade, execução inventada é pior que nenhuma: some com ela e diga por quê.
                 No modo de exemplo (sem banco) a tabela continua, porque ali tudo é demonstração. */}
             {modoApp !== 'memoria' ? (
-              <Nota>O histórico de execuções ainda não vem do banco. Acompanhe pelo último sync acima, pelo status do cartão e pela fila do outbox.</Nota>
+              <Nota>O histórico de execuções ainda não vem do banco. Acompanhe pelas tentativas do robô acima, pelo aviso do cartão e pela fila do outbox.</Nota>
             ) : (
             <div className="overflow-hidden rounded-lg border border-border">
               <table className="w-full text-sm">

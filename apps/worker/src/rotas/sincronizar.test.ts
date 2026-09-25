@@ -40,6 +40,9 @@ function dbFalso(credenciais: Credenciais | null = { token: TOKEN_SECRETO }) {
     marcarStatusConector: vi.fn(async () => {}),
     getSyncState: vi.fn(async () => ({ connector_id: 'x', cursor: { date_confirmed_from: 100 }, last_run_at: null, last_ok_at: null, runs: 3 })),
     setSyncState: vi.fn(async () => {}),
+    marcarPulso: vi.fn(async () => {}),
+    gravarCursor: vi.fn(async () => {}),
+    marcarRodadaManual: vi.fn(async () => {}),
     upsertOrders: vi.fn(async (_t: string, _c: string, pedidos: unknown[]) => pedidos.length),
   }
 }
@@ -89,8 +92,8 @@ describe('POST /connectors/:id/sync', () => {
     // Leu do cursor que o cron deixou e gravou os pedidos como o cron grava.
     expect(cursorVisto).toEqual({ date_confirmed_from: 100 })
     expect(db.upsertOrders).toHaveBeenCalledWith('t1', c, [
-      { external_id: '900', external_status: '7', confirmed_at: '2026-09-22T10:00:00.000Z', updated_at_external: '2026-09-22T10:00:00.000Z', total: 120.5, raw: null, itens: [{ sku_externo: 'CAM-01', quantidade: 2, preco: 60.25 }] },
-      { external_id: '901', external_status: '7', confirmed_at: '2026-09-22T10:00:00.000Z', updated_at_external: '2026-09-22T10:00:00.000Z', total: 120.5, raw: null, itens: [{ sku_externo: 'CAM-01', quantidade: 2, preco: 60.25 }] },
+      { external_id: '900', external_status: '7', confirmed_at: '2026-09-22T10:00:00.000Z', updated_at_external: '2026-09-22T10:00:00.000Z', total: 120.5, itens: [{ sku_externo: 'CAM-01', quantidade: 2, preco: 60.25 }] },
+      { external_id: '901', external_status: '7', confirmed_at: '2026-09-22T10:00:00.000Z', updated_at_external: '2026-09-22T10:00:00.000Z', total: 120.5, itens: [{ sku_externo: 'CAM-01', quantidade: 2, preco: 60.25 }] },
     ])
   })
 
@@ -103,9 +106,42 @@ describe('POST /connectors/:id/sync', () => {
     await rotaSincronizarConector(pedidoHttp(c), env, ctxFalso(), c, depsDo(c, db, {
       criar: criarFalso(async () => ({ pedidos: [PEDIDO], cursor: { date_confirmed_from: 777 } })),
     }))
-    expect(db.setSyncState).toHaveBeenCalledTimes(1)
-    expect(db.setSyncState).toHaveBeenCalledWith(c, null, true, null)
-    expect(db.setSyncState).not.toHaveBeenCalledWith(c, { date_confirmed_from: 777 }, true, null)
+    expect(db.gravarCursor).not.toHaveBeenCalled()
+    expect(db.marcarRodadaManual).toHaveBeenCalledTimes(1)
+    expect(db.marcarRodadaManual).toHaveBeenCalledWith(c, 't1', true, null)
+  })
+
+  // sync_state é o diário do ROBÔ. Se o botão gravasse ali (pulso, last_ok_at, runs — que é o que
+  // worker_set_sync_state faz), um clique com o cron morto faria o robô parecer vivo na tela, e o
+  // pulso deixaria de separar "o robô não roda" de "o robô roda e morre".
+  it('não escreve nada em sync_state, nem no sucesso nem na falha', async () => {
+    for (const [n, falhar] of [[16, false], [17, true]] as const) {
+      const c = id(n)
+      const db = dbFalso()
+      await rotaSincronizarConector(pedidoHttp(c), env, ctxFalso(), c, depsDo(c, db, {
+        criar: criarFalso(async () => {
+          if (falhar) throw new ErroConector('baselinker', 'getOrders: fora do ar', { status: 503 })
+          return { pedidos: [PEDIDO], cursor: { date_confirmed_from: 777 } }
+        }),
+      }))
+      expect(db.setSyncState).not.toHaveBeenCalled()
+      expect(db.gravarCursor).not.toHaveBeenCalled()
+      expect(db.marcarPulso).not.toHaveBeenCalled()
+      expect(db.marcarRodadaManual).toHaveBeenCalledWith(c, 't1', !falhar, falhar ? expect.any(String) : null)
+    }
+  })
+
+  it('lê no máximo o teto de páginas do cron e diz quando ainda há fila', async () => {
+    const c = id(18)
+    const db = dbFalso()
+    const pagina = vi.fn(async () => ({ pedidos: [PEDIDO], cursor: { date_confirmed_from: 100 }, fim: false }))
+    const res = await rotaSincronizarConector(pedidoHttp(c), env, ctxFalso(), c, depsDo(c, db, {
+      criar: (row) => ({ ...criarFalso(async () => ({ pedidos: [], cursor: {} }))(row), pullOrdersPagina: pagina }),
+    }))
+    expect(pagina).toHaveBeenCalledTimes(2)
+    const corpo = (await res.json()) as { ok: boolean; pedidos: number; detalhe: string }
+    expect(corpo).toMatchObject({ ok: true, pedidos: 2 })
+    expect(corpo.detalhe).toContain('ainda há pedidos mais novos na fila')
   })
 
   it('zero pedidos é sucesso, e a frase diz isso com todas as letras', async () => {
@@ -122,7 +158,7 @@ describe('POST /connectors/:id/sync', () => {
     expect(corpo.detalhe).not.toMatch(/erro|falh/i)
     // Nada a gravar, mas a rodada conta: é o "Último sync" do cartão.
     expect(db.upsertOrders).not.toHaveBeenCalled()
-    expect(db.setSyncState).toHaveBeenCalledWith(c, null, true, null)
+    expect(db.marcarRodadaManual).toHaveBeenCalledWith(c, 't1', true, null)
   })
 
   it('conector sem credencial: 400 dizendo o que fazer, e o conector vira desconectado', async () => {
@@ -154,7 +190,7 @@ describe('POST /connectors/:id/sync', () => {
     expect(corpo.ok).toBe(false)
     expect(corpo.erro).toBe('o token foi recusado pelo BaseLinker; gere um novo em Minha conta > API e salve aqui')
     // O cartão passa a mostrar o mesmo texto que o dono acabou de ler na tela.
-    expect(db.setSyncState).toHaveBeenCalledWith(c, null, false, corpo.erro)
+    expect(db.marcarRodadaManual).toHaveBeenCalledWith(c, 't1', false, corpo.erro)
   })
 
   it('erro genérico da plataforma fala de leitura de pedidos, não de teste de conexão', async () => {
@@ -251,7 +287,7 @@ describe('tempo e duplo clique', () => {
     liberar!()
     await ctx.waitUntil.mock.calls[0][0]
     expect(db.upsertOrders).toHaveBeenCalledTimes(1)
-    expect(db.setSyncState).toHaveBeenCalledWith(c, null, true, null)
+    expect(db.marcarRodadaManual).toHaveBeenCalledWith(c, 't1', true, null)
   })
 
   // Requisição abandonada (o dono fecha a aba, o 4G da fábrica cai): sem waitUntil desde o
@@ -267,7 +303,7 @@ describe('tempo e duplo clique', () => {
     expect(res.status).toBe(200)
     expect(ctx.waitUntil).toHaveBeenCalledTimes(1)
     await ctx.waitUntil.mock.calls[0][0]
-    expect(db.setSyncState).toHaveBeenCalledWith(c, null, true, null)
+    expect(db.marcarRodadaManual).toHaveBeenCalledWith(c, 't1', true, null)
   })
 
   it('duplo clique: a segunda chamada entra na execução que já está rodando', async () => {
@@ -335,5 +371,11 @@ describe('detalheSucesso', () => {
     expect(detalheSucesso('baselinker', 1)).toBe('1 pedido lido do BaseLinker e gravado no Prodio')
     expect(detalheSucesso('bling', 3)).toBe('3 pedidos lidos do Bling e gravados no Prodio')
     expect(detalheSucesso('tiny', 0)).toBe('a conta do Tiny respondeu, nenhum pedido novo desde a última leitura')
+  })
+
+  it('leitura que parou no teto avisa que há fila, sem parecer erro', () => {
+    const frase = detalheSucesso('baselinker', 200, false)
+    expect(frase).toMatch(/^200 pedidos lidos do BaseLinker e gravados no Prodio; ainda há pedidos mais novos na fila/)
+    expect(frase).not.toMatch(/erro|falh/i)
   })
 })

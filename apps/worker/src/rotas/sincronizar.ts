@@ -11,7 +11,7 @@
 // docs/arquitetura.md §2.5 — o pedido é conferido COMO O PRÓPRIO USUÁRIO (anon key + JWT dele,
 // então RLS e current_member_role valem: tem de ser admin do tenant do conector) e só depois o
 // service role entra, e só para o que é impossível fazer como usuário: decifrar a credencial,
-// gravar os pedidos (worker_upsert_orders) e refletir o sync_state.
+// gravar os pedidos (worker_upsert_orders) e marcar o resultado no cartão (connectors).
 //
 // DECISÃO 1 — CONCORRÊNCIA: o cursor tem um dono só, e é o cron.
 //   O cron pode estar sincronizando este conector no exato instante em que o dono aperta o botão,
@@ -21,27 +21,31 @@
 //   cursores diferentes — quem gravar por último vence, e se for a execução mais atrasada o
 //   cursor pula pedidos que ninguém leu. Isso é perda de dado silenciosa.
 //   A cura mais simples é tirar o segundo escritor: a sincronização manual NÃO grava cursor
-//   (avancarCursor: false). Ela lê o cursor atual, traz o que houver e grava os pedidos; o cursor
+//   (origem: 'manual'). Ela lê o cursor atual, traz o que houver e grava os pedidos; o cursor
 //   fica exatamente onde o cron o deixou. Com um escritor só, não existe corrida para resolver.
 //   O preço é a próxima rodada do cron reler a mesma janela — releitura que já acontece de
 //   propósito (o BaseLinker volta 2 h no cursor, justamente porque o upsert é idempotente) e que
-//   custa uma chamada de API, não um dado errado. O ganho na tela é o que importa: worker_set_sync_state
-//   com cursor nulo mantém o cursor e mesmo assim atualiza ultimo_sync, last_ok_at e o status do
-//   conector, que é tudo o que o cartão mostra.
+//   custa uma chamada de API, não um dado errado.
+//   A regra foi estendida a sync_state INTEIRO (origem 'manual' em sincronizarConector): o botão
+//   também não grava o pulso (last_run_at), nem last_ok_at, nem runs. Ele marca só o cartão
+//   (connectors: ultimo_sync, status, ultimo_erro — Db.marcarRodadaManual). sync_state é o diário
+//   do robô; se o botão escrevesse nele, um clique com o cron morto faria o robô parecer vivo, e a
+//   tela perderia o único jeito de separar "o robô não roda" de "o robô roda e morre".
 //
 // DECISÃO 2 — TEMPO: responde sempre, e o que passar do prazo continua em segundo plano.
-//   Um primeiro sync de conta grande pode paginar bastante (o BaseLinker espaça as chamadas em
-//   650 ms e vai a 20 páginas), e um Worker não pode segurar a requisição para sempre. Devolver
-//   "comecei, olhe o cartão depois" para todo mundo seria pior do que o problema que esta rota
-//   resolve. Então: esperamos o resultado até TEMPO_LIMITE_MS e respondemos com ele. Se estourar,
-//   a execução é entregue a ctx.waitUntil (ela termina, grava os pedidos e o sync_state sozinha) e
-//   o dono recebe 200 com uma frase que diz exatamente isso. Nos dois casos ele sai da tela
+//   A leitura tem o mesmo teto de páginas por rodada do cron (paginas_por_rodada, padrão 2), então
+//   o normal é responder em poucos segundos; mas a plataforma pode estar lenta, e um Worker não pode
+//   segurar a requisição para sempre. Devolver "comecei, olhe o cartão depois" para todo mundo
+//   seria pior do que o problema que esta rota resolve. Então: esperamos o resultado até
+//   TEMPO_LIMITE_MS e respondemos com ele. Se estourar, a execução é entregue a ctx.waitUntil
+//   (ela termina, grava os pedidos e o cartão sozinha) e o dono recebe 200 com uma frase que diz
+//   exatamente isso. Nos dois casos ele sai da tela
 //   sabendo o que está acontecendo, que é o critério.
 //   A execução é entregue ao ctx.waitUntil ASSIM QUE COMEÇA, não só quando o prazo estoura: sem
 //   isso ela vive presa à requisição e o dono fechar a aba no meio cancelaria a leitura — que
 //   voltaria como "falha da plataforma" gravada no cartão. Ver o comentário no corpo da rota.
 //   A DECISÃO 1 é o que torna isto seguro: como a manual não grava cursor, uma execução de fundo
-//   interrompida no meio não avança nada — no pior caso alguns pedidos já gravados (idempotente) e
+//   interrompida no meio não avança nada — no pior caso algumas páginas já gravadas (idempotente) e
 //   o cron refaz a janela cinco minutos depois.
 //
 // DECISÃO 3 — DUPLO CLIQUE: o segundo clique entra na execução que já está rodando.
@@ -87,11 +91,14 @@ export interface DepsSync {
 // Sucesso com zero pedidos é o caso MAIS COMUM de quem acabou de conectar, e não é erro: a conta
 // respondeu, só não havia nada novo desde a última leitura. Se a frase não disser isso com todas
 // as letras, o dono conclui que quebrou e vai mexer na credencial que estava boa.
-export function detalheSucesso(plataforma: string, pedidos: number): string {
+// `emDia = false`: a leitura parou no teto de páginas e há mais pedidos na fila. Dizer isso evita o
+// dono procurar o pedido de hoje, não achar e concluir que a integração perde pedido.
+export function detalheSucesso(plataforma: string, pedidos: number, emDia = true): string {
   const nome = nomeDaPlataforma(plataforma)
   if (pedidos <= 0) return `a conta do ${nome} respondeu, nenhum pedido novo desde a última leitura`
-  if (pedidos === 1) return `1 pedido lido do ${nome} e gravado no Prodio`
-  return `${pedidos} pedidos lidos do ${nome} e gravados no Prodio`
+  const base = pedidos === 1 ? `1 pedido lido do ${nome} e gravado no Prodio` : `${pedidos} pedidos lidos do ${nome} e gravados no Prodio`
+  if (emDia) return base
+  return `${base}; ainda há pedidos mais novos na fila, e o robô do Prodio continua a leitura sozinho, algumas páginas a cada 5 minutos, até ficar em dia`
 }
 
 export function detalheEmAndamento(plataforma: string): string {
@@ -205,10 +212,10 @@ export async function rotaSincronizarConector(req: Request, env: Env, ctx: Conte
     // para ctx.waitUntil e a que um segundo clique recebe.
     const executar = async (): Promise<RespostaSync> => {
       try {
-        // DECISÃO 1: avancarCursor: false. O cursor é do cron.
-        const pedidos = await sincronizar(linha, db, async () => conector, { avancarCursor: false })
-        log('info', 'conector.sync.ok', { connector: c.id, tenant: c.tenant_id, plataforma: c.plataforma, user: u.userId, pedidos })
-        return { status: 200, corpo: { ok: true, pedidos, detalhe: detalheSucesso(c.plataforma, pedidos) } }
+        // DECISÃO 1: origem 'manual'. O cursor, e sync_state inteiro, são do cron.
+        const r = await sincronizar(linha, db, async () => conector, { origem: 'manual' })
+        log('info', 'conector.sync.ok', { connector: c.id, tenant: c.tenant_id, plataforma: c.plataforma, user: u.userId, pedidos: r.pedidos, emDia: r.emDia })
+        return { status: 200, corpo: { ok: true, pedidos: r.pedidos, detalhe: detalheSucesso(c.plataforma, r.pedidos, r.emDia) } }
       } catch (e) {
         if (await desativarSeSemCredenciais(c, db, e)) {
           return { status: 400, corpo: { ok: false, erro: `nenhuma credencial salva para o ${nomeDaPlataforma(c.plataforma)}: salve a credencial antes de sincronizar` } }
@@ -220,9 +227,9 @@ export async function rotaSincronizarConector(req: Request, env: Env, ctx: Conte
         // O log também passa pelo filtro de segredos: wrangler tail fica no painel da Cloudflare.
         log('warn', 'conector.sync.falha', { connector: c.id, tenant: c.tenant_id, plataforma: c.plataforma, user: u.userId, erro: redigirSegredos(mensagemErro(e), credenciais) })
         try {
-          // Mesmo caminho do cron: marca a rodada como falha e deixa o texto no cartão. Aqui o
-          // texto é o mesmo que o dono acabou de ler na tela, não a mensagem crua do adaptador.
-          await db.setSyncState(c.id, null, false, mensagem)
+          // Marca a falha no cartão (status 'erro' + o texto), sem tocar em sync_state (DECISÃO 1).
+          // Aqui o texto é o mesmo que o dono acabou de ler na tela, não a mensagem crua do adaptador.
+          await db.marcarRodadaManual(c.id, c.tenant_id, false, mensagem)
         } catch (e2) {
           log('error', 'conector.sync.gravarErro', { connector: c.id, erro: mensagemErro(e2) })
         }

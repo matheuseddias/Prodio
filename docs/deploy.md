@@ -104,9 +104,11 @@ Antes de publicar: se o banco recebeu os dados de exemplo antes de 22/09/2026, r
 `supabase/correcoes/20260922_conector_fantasma.sql` (seção 3). Sem isso o cron acorda com um conector
 marcado como conectado e sem credencial, e passa a falhar de 5 em 5 minutos.
 
-Publique primeiro e grave os segredos depois: dois deles (`PUBLIC_URL` e `CORS_ORIGENS`) precisam do
-endereço que só existe depois do primeiro `wrangler deploy`. Segredo passa a valer na requisição
-seguinte, sem publicar de novo.
+`PUBLIC_URL` e `CORS_ORIGENS` não são segredo e moram em `[vars]` do `apps/worker/wrangler.toml`: vão
+junto em todo `wrangler deploy`. Não grave os dois como segredo nem como variável no painel (o
+`wrangler deploy` substitui a lista de variáveis pela do arquivo). Numa conta nova, troque em
+`[vars]` o endereço do worker e a lista de origens da interface antes de publicar. Segredo passa a
+valer na requisição seguinte, sem publicar de novo.
 
 ```bash
 cd apps/worker
@@ -121,11 +123,6 @@ wrangler secret put SUPABASE_SERVICE_KEY  # Supabase > Settings > API > service_
 wrangler secret put SUPABASE_ANON_KEY     # a anon/public key do mesmo lugar
 wrangler secret put CREDENTIALS_KEY       # openssl rand -hex 32 — guarde: girar esta chave
                                           # invalida toda credencial de conector já cifrada
-wrangler secret put CORS_ORIGENS          # origens da interface, separadas por vírgula:
-# https://app.prodio.com.br,https://prodio-web.pages.dev,https://*.prodio-web.pages.dev,http://localhost:5173
-
-# obrigatório para conectar Bling ou Tiny (OAuth). O BaseLinker é token colado e não precisa.
-wrangler secret put PUBLIC_URL            # o endereço do worker, sem barra no fim
 
 # opcionais: app OAuth global. No Tiny o app é privado por seller, então o normal é o
 # cliente colar client_id/client_secret na própria tela de Conectores e pular estes dois.
@@ -137,9 +134,9 @@ wrangler secret put TINY_CLIENT_SECRET
 wrangler secret list                      # confere os nomes gravados (nunca mostra valores)
 ```
 
-Sem `CORS_ORIGENS` a interface publicada falha com erro de CORS em tudo que fala com o worker (só
-`localhost` passa). Sem `PUBLIC_URL`, `/oauth/start` responde 500 e o botão "Conectar o Tiny" não sai
-do lugar. A lista completa, com o que cada variável faz, está em `apps/worker/README.md`.
+Se `CORS_ORIGENS` em `[vars]` não tiver o endereço da interface, ela falha com erro de CORS em tudo
+que fala com o worker (só `localhost` passa). Se `PUBLIC_URL` estiver errado, `/oauth/start` responde
+500 e o botão "Conectar o Tiny" não sai do lugar. A lista completa, com o que cada variável faz, está em `apps/worker/README.md`.
 
 Depois preencha `VITE_WORKER_URL` com esse mesmo endereço: no `.env` da interface para o build local, e **no painel** do Cloudflare Pages (Settings > Variables and Secrets, em Production **e** em Preview) para o site publicado — variável `VITE_*` é lida no build, então o site só enxerga o worker depois de uma publicação nova (`docs/deploy-web.md`, passo 3). O detalhe de cada rota e do e-mail de entrada está em `apps/worker/README.md`.
 
@@ -158,6 +155,61 @@ curl -s -o /dev/null -D - -X OPTIONS \
 Com o worker no ar, conecte as plataformas em Configurações > Conectores. Só nesse momento o conector sai de `desconectado`: é o worker que cifra a credencial e grava o status. Antes de ligar o envio de estoque do BaseLinker, informe o depósito (`warehouse_id`) — sem ele o envio é recusado com erro, de propósito, para o Prodio não escrever saldo no inventário errado.
 
 **De-Para de status (pendência).** A RPC `set_status_map` existe e funciona, mas nenhuma tela chama. Enquanto isso, todo pedido importado entra como `demanda` — nada vira `carteira`, `enviado` nem `cancelado`, então cancelado conta como demanda e a projeção fica alta. Não cadastre o mapa "na mão" com nomes em inglês: BaseLinker, Tiny e Bling devolvem o status como código numérico da conta, e um mapa que não casa faz o pedido entrar com significado nulo e sumir da demanda em silêncio — pior que não ter mapa.
+
+## 9. O robô de 5 minutos: como saber se está vivo
+
+O cron do worker (`*/5 * * * *`) lê os pedidos novos de cada conector conectado. Em 25/09/2026 ele passou um dia sem gravar nada — nem sucesso, nem erro — enquanto o botão "Sincronizar agora" funcionava: cada rodada tentava ler a janela inteira de uma vez, era cortada no meio pela Cloudflare e jogava fora tudo o que tinha lido. Desde então o robô:
+
+- **grava o progresso a cada página** de pedidos (100 no BaseLinker): primeiro os pedidos, depois o ponto de onde continuar. Se uma rodada morrer na página 4, a próxima começa na 4, não na 1;
+- **lê poucas páginas por rodada** (`paginas_por_rodada`, padrão 2 = até 200 pedidos a cada 5 minutos). Um atraso grande — a primeira carga, ou um robô que ficou parado — é drenado sozinho em várias rodadas;
+- **grava o pulso antes de ler**: `sync_state.last_run_at` é o início da última tentativa do robô. O botão "Sincronizar agora" não mexe em `sync_state` (nem no pulso, nem no cursor), para não fazer um robô parado parecer vivo;
+- **guarda os logs** no painel da Cloudflare (`[observability]` no `wrangler.toml`), sem precisar de `wrangler tail`.
+
+Publicar esta versão **não pede SQL nenhum**: é só publicar o worker (`pnpm deploy:worker`, ou `cd apps/worker && wrangler deploy`). Em até 5 minutos o pulso aparece; a fila atrasada entra ao longo das rodadas seguintes.
+
+### Conferir pelo banco (SQL Editor)
+
+```sql
+select c.nome, c.status, c.ultimo_erro,
+       s.last_run_at as ultima_tentativa_do_robo,
+       s.last_ok_at  as ultimo_sucesso_do_robo,
+       c.ultimo_sync as ultimo_sucesso,            -- do robô ou do botão
+       s.runs, s.cursor
+  from public.connectors c
+  left join public.sync_state s on s.connector_id = c.id
+ where c.status <> 'desconectado';
+```
+
+| O que aparece | O que quer dizer |
+|---|---|
+| `ultima_tentativa_do_robo` vazia ou com mais de 15 minutos | **O robô não está rodando.** Worker não publicado, cron desligado, ou o worker cai antes de chegar ao conector (segredo `SUPABASE_URL` ou `SUPABASE_SERVICE_KEY` errado). Veja os logs. |
+| tentativa recente, `ultimo_sucesso_do_robo` bem mais antigo, `status` conectado e `ultimo_erro` vazio | **O robô roda e morre antes de terminar** (CPU ou tempo da Cloudflare). O cursor ainda anda página a página; se ele não mudar entre uma rodada e outra, baixe `paginas_por_rodada` para 1 e veja os logs. |
+| tentativa recente e `status` = erro | Falhou e disse por quê: o motivo está em `ultimo_erro`, o mesmo texto do cartão. |
+| `ultima_tentativa_do_robo` anterior a `ultimo_sucesso_do_robo` | Tudo certo: a última tentativa terminou bem. |
+
+No BaseLinker o `cursor` é `{"date_confirmed_from": <segundos unix>}`, o ponto de onde o robô continua. Com o robô em dia ele fica cerca de 2 h antes do último pedido lido: é a sobreposição que pega pedido que aparece atrasado. Relê-se de propósito; o banco não duplica pedido.
+
+### Conferir pelos logs (painel da Cloudflare)
+
+Workers & Pages > prodio-worker > aba **Logs** (ou **Observability**). Ficam 3 dias no plano Free e 7 no pago. O que procurar:
+
+- `cron.inicio` a cada 5 minutos: o cron está disparando;
+- `sync.ok` com `pedidos`, `paginas` e `emDia` (`false` = ainda drenando a fila, é normal na primeira carga);
+- `sync.falha`, `cron.falha`, `sync.listar`, `sync.pulso`: o motivo de uma falha;
+- execução com resultado `exceededCpu` ("Exceeded CPU Limit"): a rodada estourou o CPU do plano — baixe `paginas_por_rodada`;
+- `baselinker.segundoLotado`: mais de 100 pedidos confirmados no mesmo segundo. É o único caso em que o robô avança sem ler tudo daquele segundo (senão ficaria preso nele para sempre); se aparecer, avise.
+
+As últimas 100 execuções do cron também aparecem em Workers & Pages > prodio-worker > Settings > Trigger Events > **View events**.
+
+### Mudar o número de páginas por rodada
+
+```sql
+update public.connectors
+   set config = config || '{"paginas_por_rodada": 5}'::jsonb
+ where plataforma = 'baselinker';
+```
+
+Vale de 1 a 20; valor inválido volta ao padrão 2. No plano Free (10 ms de CPU por execução do cron) fique em 1 ou 2. No pago (30 s de CPU para crons de 5 minutos), 5 a 10 drena uma fila grande mais depressa. Regra prática: páginas × 100 acima do número de pedidos que a conta recebe em 2 horas. Abaixo disso nada se perde, só o pedido novo leva uma ou duas rodadas a mais para entrar.
 
 ## Conferir se ficou de pé
 

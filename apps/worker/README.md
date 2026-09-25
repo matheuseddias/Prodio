@@ -99,15 +99,43 @@ pnpm deploy:worker
 | `POST /nfe/xml` | `Authorization: Bearer <JWT do usuário>` | Corpo `text/xml` ou multipart (campo `xml`). Roda `parseNfeXml` do core, chama `upsert_nfe_inbound` **como o usuário** e só então guarda o XML em Storage `nfe-xml/<tenant>/<chave>.xml`. Tenant vem da claim `app_metadata.tenant_id`; `?tenant_id=` ou campo `tenant_id` sobrescreve. |
 | `POST /connectors/:id/credentials` | JWT do usuário (admin) | Confere pelo próprio JWT (RLS em `connectors` + `current_member_role() = 'admin'`), depois cifra via `worker_set_credentials`. Responde `{ok:true, campos}` com os nomes gravados (nunca os valores). Campos aceitos por plataforma em `CHAVES_PERMITIDAS` (`src/rotas/credenciais.ts`) — o que a **tela** manda está em `apps/web/src/pages/sistema/ConectorCampos.ts`, e o teste `apps/web/src/pages/sistema/contrato.test.ts` prende os dois lados: **BaseLinker** `token` (obrigatório); **Tiny** `client_id` + `client_secret` (o app do Tiny é do próprio cliente); **Bling** nada — o app é do Prodio, o segredo está no env do worker e a tela vai direto para o OAuth (aceitar `client_id`/`client_secret` aqui só serve para um tenant usar app próprio). `access_token`/`refresh_token`/`expires_at` de Bling e Tiny são gravados por esta mesma RPC, mas pelo callback do OAuth, não pela tela. Endereçamento (`inventory_id`, `warehouse_id`, `deposito_id`) é recusado com 400 explicando que ele mora em `connectors.config`. |
 | `POST /connectors/:id/test` | JWT do usuário (admin) | Botão "Testar conexão". Mesma autorização das credenciais. Monta o adaptador com a credencial guardada e faz **uma** chamada barata e somente-leitura (BaseLinker `getInventories`; Tiny e Bling, uma página de um produto). Responde `{ok:true, detalhe}` com algo que prova a conexão (nome e id do inventário, total de produtos) e grava `status = 'conectado'`. Erro da plataforma vira instrução em português (`{ok:false, erro}`, 502) e grava `status = 'erro'` com o mesmo texto. Conector sem credencial devolve 400 e vira `desconectado`. Credencial nunca sai na resposta nem no log. |
-| `POST /connectors/:id/sync` | JWT do usuário (admin) | Botão "Sincronizar agora" do cartão do conector. Mesma autorização das credenciais e do teste. Roda a **mesma** `sincronizarConector` do cron (`src/jobs/syncPedidos.ts`) na hora e responde `{ok:true, pedidos, detalhe}` com uma frase para humano — zero pedidos é sucesso ("a conta respondeu, nenhum pedido novo desde a última leitura"), não erro. Falha da plataforma vira instrução em português (`{ok:false, erro}`, 502) e grava o mesmo texto no cartão via `worker_set_sync_state`. Conector sem credencial devolve 400 e vira `desconectado`. **Não grava cursor**: o dono do cursor de `sync_state` é o cron, senão as duas execuções (cron e botão) gravariam cursores diferentes a partir da mesma leitura e a atrasada poderia pular pedidos; o custo é o cron reler a janela, e o upsert é idempotente. A execução vai para `ctx.waitUntil` **assim que começa**, não só quando o prazo estoura: senão o dono fechar a aba no meio cancelaria a leitura e o cartão ganharia um erro que não existiu. Se a leitura passar de 20 s, a resposta sai na hora dizendo que continua rodando (e que é preciso recarregar a página para ver o resultado — a tela não relê sozinha). Dois cliques seguidos entram na mesma execução; o registro dessa execução expira em 60 s, para uma leitura que nunca termina não deixar o botão preso em "Sincronizando…" para sempre. Detalhes e justificativas em `src/rotas/sincronizar.ts`. |
+| `POST /connectors/:id/sync` | JWT do usuário (admin) | Botão "Sincronizar agora" do cartão do conector. Mesma autorização das credenciais e do teste. Roda a **mesma** `sincronizarConector` do cron (`src/jobs/syncPedidos.ts`, `origem: 'manual'`) na hora, com o mesmo teto de páginas por rodada, e responde `{ok:true, pedidos, detalhe}` com uma frase para humano — zero pedidos é sucesso ("a conta respondeu, nenhum pedido novo desde a última leitura"), não erro; leitura que parou no teto diz que ainda há fila. Falha da plataforma vira instrução em português (`{ok:false, erro}`, 502) e grava o mesmo texto no cartão. Conector sem credencial devolve 400 e vira `desconectado`. **Não escreve nada em `sync_state`**: nem cursor (o dono do cursor é o cron, senão as duas execuções gravariam cursores diferentes a partir da mesma leitura e a atrasada poderia pular pedidos; o custo é o cron reler a janela, e o upsert é idempotente), nem pulso, nem `last_ok_at` (senão um clique com o cron morto faria o robô parecer vivo). O resultado vai só para o cartão, direto em `connectors` (`Db.marcarRodadaManual`). A execução vai para `ctx.waitUntil` **assim que começa**, não só quando o prazo estoura: senão o dono fechar a aba no meio cancelaria a leitura e o cartão ganharia um erro que não existiu. Se a leitura passar de 20 s, a resposta sai na hora dizendo que continua rodando (e que é preciso recarregar a página para ver o resultado — a tela não relê sozinha). Dois cliques seguidos entram na mesma execução; o registro dessa execução expira em 60 s, para uma leitura que nunca termina não deixar o botão preso em "Sincronizando…" para sempre. Detalhes e justificativas em `src/rotas/sincronizar.ts`. |
 | `POST /connectors/:id/:plataforma/oauth/start` | JWT do usuário (admin) | `:plataforma` é `bling` ou `tiny`. Devolve `{url}` — e essa URL é do **próprio worker** (`/oauth/go`), não da plataforma: é lá que o cookie de vínculo é gravado. O `state` é assinado com uma chave derivada de `CREDENTIALS_KEY` e vale 10 min. |
 | `GET /connectors/:plataforma/oauth/go?state` | `state` assinado | Grava o cookie de vínculo (`prodio_oauth`, HttpOnly/Secure/SameSite=Lax, Path=/connectors) e redireciona para o consentimento da plataforma. Roda sem JWT: é navegação de janela, e quem a autoriza é o `state`, que só `/oauth/start` (admin) emite. |
-| `GET /connectors/:plataforma/oauth/callback?code&state` | `state` assinado **+ cookie de vínculo** | Troca o code por tokens e grava cifrado. Cadastre **esta** URL como redirect no app da plataforma (não a `/oauth/go`). Bling: Basic `client_id:client_secret` + `enable-jwt: 1`. Tiny: Keycloak, credenciais no corpo, com `redirect_uri`. |
+| `GET /connectors/:plataforma/oauth/callback?code&state` | `state` assinado **+ cookie de vínculo** | Troca o code por tokens e grava cifrado. Limpa o `ultimo_erro` e tira o conector de 'erro' (`Db.marcarCredencialNova`), mas não grava `ultimo_sync` nem `sync_state`: autorizar não é sincronizar (antes chamava `worker_set_sync_state(ok)`, e o cartão dizia "O robô está sincronizando sozinho" sem o robô ter rodado). Cadastre **esta** URL como redirect no app da plataforma (não a `/oauth/go`). Bling: Basic `client_id:client_secret` + `enable-jwt: 1`. Tiny: Keycloak, credenciais no corpo, com `redirect_uri`. |
 | `POST /webhooks/bling/:connectorId` | `X-Bling-Signature-256` | HMAC-SHA256 do corpo cru com o `client_secret`. Responde 200 na hora, processa em `ctx.waitUntil`. Eventos de pedido buscam o pedido e fazem `worker_upsert_orders` (idempotente por `external_id`). |
 
 ## Crons (`wrangler.toml`)
 
-- `*/5 * * * *` → `syncPedidos` (pullOrders incremental por `sync_state.cursor`, com sobreposição) e depois `aplicarOutbox`.
+- `*/5 * * * *` → `syncPedidos` (pedidos incrementais por `sync_state.cursor`, com sobreposição) e depois `aplicarOutbox`.
+
+`scheduled()` **devolve** a promessa do trabalho (`executarCron` em `src/index.ts`); não usa `ctx.waitUntil`. Com
+waitUntil e retorno imediato, a Cloudflare corta o trabalho 30 s depois do fim da invocação, sem passar por catch
+nenhum — foi assim que o robô passou 24 h sem gravar nada em 25/09/2026. O CPU por execução continua limitado (10 ms
+no Free, 30 s no pago), e por isso cada rodada é curta e grava o progresso aos pedaços:
+
+- **Página por página.** Adaptador com `pullOrdersPagina` (hoje o BaseLinker) é lido uma página por vez: os pedidos
+  vão para `worker_upsert_orders` e só depois o cursor daquela página é gravado em `sync_state` (`Db.gravarCursor`).
+  Morrer na página 4 faz a próxima rodada começar na 4. Bling e Tiny (sem leitura por página) continuam numa página
+  única por rodada; o Tiny tem teto próprio (`max_pedidos`).
+- **Teto por rodada.** `connectors.config.paginas_por_rodada` (padrão 2, de 1 a 20). Atraso grande é drenado em
+  várias rodadas de 5 minutos; cada rodada que chega ao teto fecha como sucesso e grava onde parou.
+- **Cursor que nunca pula pedido** (BaseLinker, `pullOrdersPagina`): página cheia continua do maior `date_confirmed`
+  lido, inclusive (o "+1 segundo" da documentação pularia os pedidos que dividem o segundo da borda); página
+  incompleta volta 2 h do maior lido; página vazia não mexe; `dias_iniciais` só vale sem cursor (cursor antigo é
+  drenado inteiro, sem salto). Segundo com 100 ou mais pedidos confirmados (importação em massa): o cursor ganha
+  `id_from` e o robô percorre aquele segundo por número de pedido (`baselinker.segundoCheio` no log, warn), sem pular
+  nenhum. Só se a API ignorar `id_from` o robô anda +1 para não ficar preso (`baselinker.segundoLotado`, error): aí
+  pode ter ficado pedido daquele segundo para trás, e o log diz qual segundo conferir.
+- **Pulso.** Antes de decifrar a credencial e de falar com a plataforma, `sync_state.last_run_at` recebe o início da
+  tentativa (`Db.marcarPulso`, upsert direto, sem RPC). `worker_set_sync_state` regrava a coluna com o fim da rodada,
+  e o job devolve o início logo depois. Contrato para a interface: `last_run_at` = início da última tentativa do
+  robô; `last_ok_at` = fim da última tentativa do robô que deu certo; `connectors.ultimo_sync` = último sucesso (robô
+  ou botão). `last_run_at > last_ok_at` = a última tentativa não terminou bem. Como conferir: `docs/deploy.md` §9.
+- **Logs persistidos.** `[observability] enabled = true` no `wrangler.toml` (Workers Logs, vale no Free).
+- **Sem pedido cru.** Os adaptadores não mandam mais o pedido inteiro da plataforma para `orders.raw`: ninguém lê a
+  coluna, e serializar o pedido cru custava CPU a cada rodada. A chave `raw` só vai quando há anotação (o webhook do
+  Bling anota o id do evento); ausente, o banco mantém o que já havia.
 - `0 3 * * *` → `auditor` (saldo do hub por produto → `hub_stock_snapshots`; divergência = hub − (snapshot anterior + bipes do dia) → `audit_runs`).
 
 Erro em um conector grava `ultimo_erro` via `worker_set_sync_state(id, null, false, erro)` e não interrompe os outros tenants.
@@ -192,6 +220,7 @@ Além do que está em `docs/schema.md`, o worker assume (ver cabeçalho de `src/
 
 - `worker_set_credentials(p_tenant_id, p_connector_id, p_payload jsonb, p_key)`;
 - `worker_set_sync_state(p_connector_id, p_cursor jsonb, p_ok, p_erro)`: cursor nulo mantém o anterior; `p_ok=false` grava `connectors.ultimo_erro`;
+- service_role com INSERT/UPDATE em `sync_state` (pulso e cursor por página, upsert direto) e UPDATE em `connectors` (status do teste e resultado do botão) — travado em `supabase/tests/0008_integracoes.test.sql`;
 - `worker_claim_outbox` devolve `[{product_id, sku, delta, ids}]`;
 - `worker_apply_outbox_result(p_ids, false, null)` devolve a `pendente` sem contar tentativa;
 - `worker_upsert_hub_stock(p_tenant_id, p_connector_id, p_itens [{sku, saldo}])`, `worker_record_audit(p_tenant_id, p_connector_id, p_divergencias)`;
@@ -204,7 +233,7 @@ Além do que está em `docs/schema.md`, o worker assume (ver cabeçalho de `src/
 src/index.ts            roteador, cron dispatcher, health, handler de e-mail
 src/cors.ts             lista de origens permitidas, preflight e cabeçalhos
 src/env.ts              tipagem das variáveis
-src/http.ts             cliente HTTP: fila por conta, backoff em 429/5xx, log
+src/http.ts             cliente HTTP: fila por execução, espaçamento por conta, prazo por chamada, backoff em 429/5xx, log
 src/db.ts               Supabase (service role) + cliente do usuário; RPCs worker_*
 src/conectores/tipos.ts interface Conector e PedidoNormalizado
 src/conectores/baselinker.ts, bling.ts, tiny.ts (+ tinyMapa.ts, tinyAuth.ts, tinyNfe.ts), index.ts (fábrica)

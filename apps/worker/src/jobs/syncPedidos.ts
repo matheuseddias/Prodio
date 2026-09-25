@@ -1,10 +1,23 @@
-// Cron de 5 min: para cada conector ativo, pullOrders incremental por sync_state.cursor,
-// worker_upsert_orders e worker_set_sync_state. Erro de um conector não para os outros tenants.
+// Cron de 5 min: para cada conector ativo, lê os pedidos novos desde sync_state.cursor, página por
+// página, e grava cada página (worker_upsert_orders) e o ponto de retomada antes de ler a próxima.
+// Erro de um conector não para os outros tenants.
+//
+// POR QUE PÁGINA POR PÁGINA (incidente de 25/09/2026): o robô passou 24 h sem gravar nada — nem
+// sucesso, nem falha — enquanto o botão "Sincronizar agora" funcionava. A rodada lia a janela
+// inteira (até 20 páginas) e só gravava pedidos e cursor NO FIM. Qualquer coisa que a matasse no
+// meio (o limite de 30 s do waitUntil depois que scheduled() devolvia, CPU do plano Free, uma
+// exceção, um fetch pendurado) jogava fora o trabalho todo, e a rodada seguinte recomeçava do mesmo
+// cursor nulo para morrer no mesmo ponto. Para sempre, em silêncio. Agora:
+//   • cada página vai para o banco e SÓ DEPOIS o cursor dela é gravado: morrer na página 4 faz a
+//     próxima rodada começar na 4 (o cursor nunca passa de um pedido não gravado);
+//   • cada rodada lê no máximo `paginas_por_rodada` páginas (connectors.config, padrão pequeno):
+//     rodadas curtas, e um atraso grande é drenado em várias rodadas de 5 minutos;
+//   • o pulso (sync_state.last_run_at) é gravado antes de tudo: rodada que morre deixa rastro.
 import type { Env } from '../env'
 import type { ConectorRow, Credenciais, Db, PedidoParaRpc } from '../db'
 import { montarConector } from '../conectores'
 import { mensagemDaFalhaDeSync, redigirSegredos } from '../conectores/mensagens'
-import type { Conector, PedidoNormalizado } from '../conectores/tipos'
+import type { Conector, Cursor, PaginaPedidos, PedidoNormalizado } from '../conectores/tipos'
 import { log, mensagemErro } from '../log'
 import { desativarSeSemCredenciais } from './semCredenciais'
 
@@ -18,40 +31,105 @@ export interface ResumoSync {
 export type MontarConector = (row: ConectorRow) => Promise<Conector>
 
 export function paraRpc(p: PedidoNormalizado): PedidoParaRpc {
-  return {
+  const r: PedidoParaRpc = {
     external_id: p.externalId,
     external_status: p.status,
     confirmed_at: p.confirmedAt,
     updated_at_external: p.updatedAt,
     total: p.total,
-    raw: p.raw ?? null,
     itens: p.itens.map((it) => ({ sku_externo: it.skuExterno, quantidade: it.quantidade, preco: it.preco })),
   }
+  // Sem anotação, a chave nem vai: `x -> 'raw'` vira NULL de SQL e o coalesce de worker_upsert_orders
+  // mantém o que já estava (um `null` de JSON sobrescreveria a anotação do webhook).
+  if (p.raw !== undefined && p.raw !== null) r.raw = p.raw
+  return r
+}
+
+// Páginas por rodada: PEQUENO de propósito. No plano Free cada execução do cron tem 10 ms de CPU
+// (e 50 subrequisições); no pago, 30 s de CPU. Uma página do BaseLinker são 100 pedidos, então 2
+// páginas por rodada de 5 minutos drenam 2.400 pedidos por hora — de sobra para colocar em dia uma
+// primeira carga ou um robô que ficou parado — e cada rodada termina em poucos segundos.
+// Configurável por conector em connectors.config.paginas_por_rodada (1 a PAGINAS_POR_RODADA_MAX).
+export const PAGINAS_POR_RODADA_PADRAO = 2
+export const PAGINAS_POR_RODADA_MAX = 20
+
+export function paginasPorRodada(config: Record<string, unknown> | null | undefined): number {
+  const n = Math.floor(Number(config?.paginas_por_rodada))
+  if (!Number.isFinite(n) || n < 1) return PAGINAS_POR_RODADA_PADRAO
+  return Math.min(n, PAGINAS_POR_RODADA_MAX)
+}
+
+// Adaptador sem leitura por página (Bling, Tiny) vira uma página única e final: mesmo
+// comportamento de antes para eles (o Tiny já tem teto próprio por rodada, max_pedidos).
+async function lerPagina(conector: Conector, cursor: Cursor | null): Promise<PaginaPedidos> {
+  if (conector.pullOrdersPagina) return conector.pullOrdersPagina(cursor)
+  const { pedidos, cursor: proximo } = await conector.pullOrders(cursor)
+  return { pedidos, cursor: proximo, fim: true }
 }
 
 // O que sincronizarConector precisa do banco. É um subconjunto de Db de propósito: a rota
-// POST /connectors/:id/sync reaproveita esta função e o teste dela monta só estes três métodos.
-export type DbSync = Pick<Db, 'getSyncState' | 'setSyncState' | 'upsertOrders'>
+// POST /connectors/:id/sync reaproveita esta função e o teste dela monta só estes métodos.
+export type DbSync = Pick<Db, 'getSyncState' | 'setSyncState' | 'upsertOrders' | 'gravarCursor' | 'marcarRodadaManual'>
 
 export interface OpcoesSincronizacao {
-  // Gravar o cursor que a plataforma devolveu. O cron grava (é o dono do cursor); a sincronização
-  // manual do botão passa false e deixa o cursor onde está — ver rotas/sincronizar.ts, DECISÃO 1.
-  avancarCursor?: boolean
+  // 'cron' (padrão): o robô. É o dono de sync_state: grava o cursor a cada página e fecha a rodada
+  // com worker_set_sync_state (ultimo_sync, last_ok_at, runs, status do cartão).
+  // 'manual': o botão "Sincronizar agora". Lê a partir do cursor do robô e grava os pedidos, mas
+  // nunca escreve em sync_state — nem cursor (rotas/sincronizar.ts, DECISÃO 1), nem pulso, nem
+  // last_ok_at — e marca o resultado só no cartão (connectors). Assim um clique no botão não faz um
+  // robô morto parecer vivo.
+  origem?: 'cron' | 'manual'
+}
+
+export interface ResultadoSync {
+  pedidos: number // pedidos lidos da plataforma nesta rodada
+  gravados: number // o que worker_upsert_orders confirmou
+  paginas: number
+  // false: a rodada parou no teto de páginas e ainda há pedidos na fila; as próximas continuam.
+  emDia: boolean
 }
 
 // Sincroniza um conector. Lança se falhar; quem chama decide o que fazer.
-export async function sincronizarConector(row: ConectorRow, db: DbSync, montar: MontarConector, opcoes: OpcoesSincronizacao = {}): Promise<number> {
-  const avancar = opcoes.avancarCursor !== false
+export async function sincronizarConector(row: ConectorRow, db: DbSync, montar: MontarConector, opcoes: OpcoesSincronizacao = {}): Promise<ResultadoSync> {
+  const robo = (opcoes.origem ?? 'cron') === 'cron'
+  const resultado: ResultadoSync = { pedidos: 0, gravados: 0, paginas: 0, emDia: false }
   const conector = await montar(row)
-  if (!conector.capacidades.pedidos) return 0
+  if (!conector.capacidades.pedidos) return { ...resultado, emDia: true }
   const estado = await db.getSyncState(row.id)
-  const { pedidos, cursor } = await conector.pullOrders(estado?.cursor ?? null)
-  const n = pedidos.length ? await db.upsertOrders(row.tenant_id, row.id, pedidos.map(paraRpc)) : 0
-  // Cursor nulo mantém o anterior (worker_set_sync_state faz coalesce) e ainda assim marca a
-  // rodada: ultimo_sync, last_ok_at e o status 'conectado' do cartão são atualizados do mesmo jeito.
-  await db.setSyncState(row.id, avancar ? cursor : null, true, null)
-  log('info', 'sync.ok', { connector: row.id, tenant: row.tenant_id, plataforma: row.plataforma, pedidos: pedidos.length, gravados: n, cursor: avancar ? 'avancado' : 'mantido' })
-  return pedidos.length
+  const limite = paginasPorRodada(row.config)
+  let cursor: Cursor | null = estado?.cursor ?? null
+  let gravado = JSON.stringify(cursor)
+  while (resultado.paginas < limite) {
+    const pagina = await lerPagina(conector, cursor)
+    resultado.paginas++
+    resultado.pedidos += pagina.pedidos.length
+    if (pagina.pedidos.length) resultado.gravados += await db.upsertOrders(row.tenant_id, row.id, pagina.pedidos.map(paraRpc))
+    cursor = pagina.cursor
+    // A ORDEM É O QUE GARANTE QUE NADA SE PERDE: primeiro os pedidos da página no banco, depois o
+    // ponto de retomada. Morrer entre um e outro só faz a próxima rodada reler esta página.
+    // Ponto igual ao que já está gravado (rodada sem novidade) não custa escrita nem subrequisição.
+    const novo = JSON.stringify(cursor)
+    if (robo && novo !== gravado) {
+      await db.gravarCursor(row.id, row.tenant_id, cursor)
+      gravado = novo
+    }
+    if (pagina.fim) {
+      resultado.emDia = true
+      break
+    }
+  }
+  if (robo) {
+    // Cursor nulo: o ponto já foi gravado página a página, e mandar de novo aqui poderia recuá-lo
+    // por cima de outra rodada que tenha andado mais. A RPC marca a rodada como sucesso no cartão.
+    await db.setSyncState(row.id, null, true, null)
+  } else {
+    await db.marcarRodadaManual(row.id, row.tenant_id, true, null)
+  }
+  log('info', 'sync.ok', {
+    connector: row.id, tenant: row.tenant_id, plataforma: row.plataforma, origem: robo ? 'cron' : 'manual',
+    pedidos: resultado.pedidos, gravados: resultado.gravados, paginas: resultado.paginas, emDia: resultado.emDia,
+  })
+  return resultado
 }
 
 // O que o cron grava em `connectors.ultimo_erro` quando um conector falha.
@@ -85,19 +163,34 @@ async function motivoParaOCartao(row: ConectorRow, db: Db, e: unknown): Promise<
   }
 }
 
-export async function syncPedidos(env: Env, db: Db, montar: MontarConector = (row) => montarConector(row, env, db)): Promise<ResumoSync> {
+// O pulso nunca derruba a rodada: sem ele o diagnóstico piora, mas os pedidos ainda podem chegar.
+async function pulsar(row: ConectorRow, db: Pick<Db, 'marcarPulso'>, inicio: string): Promise<void> {
+  try {
+    await db.marcarPulso(row.id, row.tenant_id, inicio)
+  } catch (e) {
+    log('error', 'sync.pulso', { connector: row.id, tenant: row.tenant_id, erro: mensagemErro(e) })
+  }
+}
+
+export async function syncPedidos(env: Env, db: Db, montar: MontarConector = (row) => montarConector(row, env, db), agora: () => number = Date.now): Promise<ResumoSync> {
   const resumo: ResumoSync = { conectores: 0, ok: 0, falhas: 0, pedidos: 0 }
   let conectores: ConectorRow[]
   try {
     conectores = await db.listarConectoresAtivos()
   } catch (e) {
+    // Sem a lista não há conector onde gravar rastro no banco. Fica o log, que agora é persistido
+    // pelo Workers Logs (wrangler.toml, [observability]) e aparece no painel da Cloudflare. Na
+    // tela, o sintoma é o pulso de todos os conectores parar de andar.
     log('error', 'sync.listar', { erro: mensagemErro(e) })
     return resumo
   }
   for (const row of conectores) {
     resumo.conectores++
+    // Contrato com a interface: sync_state.last_run_at = INÍCIO da última tentativa do robô.
+    const inicio = new Date(agora()).toISOString()
+    await pulsar(row, db, inicio)
     try {
-      resumo.pedidos += await sincronizarConector(row, db, montar)
+      resumo.pedidos += (await sincronizarConector(row, db, montar)).pedidos
       resumo.ok++
     } catch (e) {
       resumo.falhas++
@@ -111,6 +204,10 @@ export async function syncPedidos(env: Env, db: Db, montar: MontarConector = (ro
         log('error', 'sync.gravarErro', { connector: row.id, erro: mensagemErro(e2) })
       }
     }
+    // worker_set_sync_state (sucesso ou falha) regrava last_run_at com o FIM da rodada. O contrato é
+    // o início, então ele volta para o início. Resultado: last_run_at > last_ok_at quer dizer
+    // exatamente "a última tentativa não terminou bem" (morreu, ou falhou e o cartão diz por quê).
+    await pulsar(row, db, inicio)
   }
   log('info', 'sync.resumo', { ...resumo })
   return resumo

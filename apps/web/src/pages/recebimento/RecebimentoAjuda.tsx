@@ -93,10 +93,14 @@ export function ComoChegam() {
             <Plug size={16} />
           </span>
           <div className="min-w-0 flex-1">
-            <div className="font-medium">ERP conectado</div>
+            <div className="font-medium">
+              ERP conectado{' '}
+              {erpNfe.length ? <Badge tone="ok">{erpNfe.map((c) => c.nome.split(' ')[0]).join(', ')} ativo</Badge> : <Badge tone="neutral">ainda não disponível</Badge>}
+            </div>
+            {/* `nfeCompra` sai de data/mapeadoresConectores: o worker sabe procurar a nota pela
+                chave no Bling e no Tiny (findInboundNfe), mas nenhum job nem rota chama isso. */}
             <div className="text-muted">
-              Bling, Tiny ou Omie trazem as NF-e de compra lançadas no ERP automaticamente.{' '}
-              {erpNfe.length ? <Badge tone="ok">{erpNfe.map((c) => c.nome.split(' ')[0]).join(', ')} ativo</Badge> : <Badge tone="neutral">nenhum ERP com NF-e de compra conectado</Badge>}
+              Traria as NF-e de compra lançadas no Bling ou no Tiny. O Prodio ainda não busca notas no ERP: por enquanto, use o e-mail ou o envio de XML acima.
             </div>
           </div>
         </li>

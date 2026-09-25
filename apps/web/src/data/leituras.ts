@@ -119,9 +119,52 @@ export async function lerOutbox(ctx: Ctx) {
   return ((checar(res) ?? []) as M.OutboxRow[]).map(M.outboxDoBanco)
 }
 
+/**
+ * Conectores com o que só o robô grava (`sync_state`) e a contagem de pedidos das últimas 24 h.
+ * As duas leituras extras são acessórias: se falharem, o cartão perde o diagnóstico do robô e o
+ * número, mas o conector continua na tela (e o cartão diz "—" em vez de inventar).
+ */
 export async function lerConnectors(ctx: Ctx, outboxPendentes: Record<string, number> = {}): Promise<Connector[]> {
-  const res = await ctx.sb.from('connectors').select('id,plataforma,nome,status,config,ultimo_sync,ultimo_erro').eq('tenant_id', ctx.tenantId()).order('created_at')
-  return ((checar(res) ?? []) as M.ConnectorRow[]).map((r) => M.connectorDoBanco(r, outboxPendentes[r.id] ?? 0))
+  const [res, syncs] = await Promise.all([
+    ctx.sb.from('connectors').select('id,plataforma,nome,status,config,ultimo_sync,ultimo_erro').eq('tenant_id', ctx.tenantId()).order('created_at'),
+    lerSyncState(ctx),
+  ])
+  const rows = (checar(res) ?? []) as M.ConnectorRow[]
+  const pedidos = await contarPedidos24h(ctx, rows.filter((r) => r.status !== 'desconectado').map((r) => r.id))
+  return rows.map((r) => M.connectorDoBanco(r, { outboxPendentes: outboxPendentes[r.id] ?? 0, sync: syncs ? (syncs.get(r.id) ?? null) : undefined, pedidos24h: pedidos[r.id] }))
+}
+
+/** `sync_state` do tenant por conector, ou null quando a leitura falhou (a tela não afirma nada sobre o robô). */
+async function lerSyncState(ctx: Ctx): Promise<Map<string, M.SyncStateRow> | null> {
+  try {
+    const res = await ctx.sb.from('sync_state').select('connector_id,cursor,last_run_at,last_ok_at,runs').eq('tenant_id', ctx.tenantId())
+    if (res.error) throw new Error(res.error.message)
+    return new Map(((res.data ?? []) as M.SyncStateRow[]).map((r) => [r.connector_id, r]))
+  } catch (e) {
+    console.warn('[prodio] sync_state indisponível:', (e as Error)?.message)
+    return null
+  }
+}
+
+/**
+ * Pedidos com `confirmed_at` nas últimas 24 h, por conector: uma contagem sem trazer linhas
+ * (`head`), pela RLS de `orders` (policy orders_select). Conector sem contagem fica de fora e a
+ * tela mostra "—".
+ */
+async function contarPedidos24h(ctx: Ctx, ids: string[], agora = Date.now()): Promise<Record<string, number>> {
+  const desde = new Date(agora - 24 * 3600_000).toISOString()
+  const pares = await Promise.all(
+    ids.map(async (id): Promise<[string, number] | null> => {
+      try {
+        const res = await ctx.sb.from('orders').select('id', { count: 'exact', head: true }).eq('tenant_id', ctx.tenantId()).eq('connector_id', id).gte('confirmed_at', desde)
+        if (res.error || typeof res.count !== 'number') return null
+        return [id, res.count]
+      } catch {
+        return null
+      }
+    }),
+  )
+  return Object.fromEntries(pares.filter((p): p is [string, number] => p !== null))
 }
 
 export async function lerMembers(ctx: Ctx): Promise<Member[]> {

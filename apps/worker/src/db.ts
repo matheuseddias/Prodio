@@ -6,7 +6,8 @@
 //   worker_set_credentials(p_tenant_id, p_connector_id, p_payload jsonb, p_key) -> void
 //   worker_upsert_orders(p_tenant_id, p_connector_id, p_orders jsonb) -> int
 //   worker_set_sync_state(p_connector_id, p_cursor jsonb, p_ok bool, p_erro text) -> void
-//     (cursor nulo mantém o anterior; p_ok=false grava connectors.ultimo_erro e status 'erro')
+//     (cursor nulo mantém o anterior; p_ok=false grava connectors.ultimo_erro e status 'erro';
+//      também regrava sync_state.last_run_at com now() — ver marcarPulso)
 //   worker_claim_outbox(p_connector_id, p_limit) -> [{product_id, sku, delta, ids bigint[]}]
 //   worker_apply_outbox_result(p_ids bigint[], p_ok bool, p_erro text) -> void
 //     (p_ok=false com p_erro nulo devolve os itens a 'pendente' sem contar tentativa: é o freio do lote)
@@ -44,7 +45,8 @@ export interface PedidoParaRpc {
   confirmed_at: string | null
   updated_at_external: string | null
   total: number
-  raw: unknown
+  // Ausente = o banco mantém o que já havia (coalesce em worker_upsert_orders). Ver PedidoNormalizado.raw.
+  raw?: unknown
   itens: { sku_externo: string; quantidade: number; preco: number }[]
 }
 export interface ProdutoRow {
@@ -147,6 +149,52 @@ export class Db {
 
   async setSyncState(connectorId: string, cursor: Record<string, unknown> | null, ok: boolean, erro: string | null = null): Promise<void> {
     await this.rpc('worker_set_sync_state', { p_connector_id: connectorId, p_cursor: cursor, p_ok: ok, p_erro: erro })
+  }
+
+  // sync_state é do ROBÔ (o cron) e estes dois métodos escrevem nele direto, sem RPC. É legítimo pelo
+  // mesmo motivo de marcarStatusConector: service_role tem INSERT/UPDATE em sync_state (migration
+  // 0008), sync_state não é ledger nem documento (docs/arquitetura.md §2.3) e §2.5 lista sync_state
+  // entre o que o worker grava. Não precisou de migration — o dono publica o worker e pronto.
+  // O tenant vem da linha já lida por listarConectoresAtivos, e a FK composta (tenant_id,
+  // connector_id) de sync_state recusa um par que não seja do mesmo conector.
+
+  // PULSO: last_run_at = início da tentativa, gravado ANTES de decifrar a credencial e de falar com a
+  // plataforma. É o que separa "o robô não roda" (pulso velho) de "o robô roda e morre antes de
+  // gravar" (pulso novo, last_ok_at velho). Só mexe em last_run_at: nem cursor, nem runs, nem
+  // last_ok_at, nem nada em connectors (status e ultimo_sync continuam dizendo a verdade anterior).
+  async marcarPulso(connectorId: string, tenantId: string, em: string): Promise<void> {
+    const r = await this.sb.from('sync_state').upsert({ connector_id: connectorId, tenant_id: tenantId, last_run_at: em, updated_at: em }, { onConflict: 'connector_id' })
+    checar('marcarPulso', r)
+  }
+
+  // Ponto de retomada, gravado depois de CADA página já gravada em orders. Só mexe em cursor.
+  async gravarCursor(connectorId: string, tenantId: string, cursor: Record<string, unknown>): Promise<void> {
+    const r = await this.sb
+      .from('sync_state')
+      .upsert({ connector_id: connectorId, tenant_id: tenantId, cursor, updated_at: new Date().toISOString() }, { onConflict: 'connector_id' })
+    checar('gravarCursor', r)
+  }
+
+  // Resultado do botão "Sincronizar agora" (POST /connectors/:id/sync), só no cartão (connectors).
+  // Não usa worker_set_sync_state de propósito: a RPC regrava sync_state.last_run_at, runs e
+  // last_ok_at, e aí um clique no botão com o cron morto faria o pulso parecer vivo — exatamente o
+  // diagnóstico que o pulso existe para dar. sync_state fica só com o robô.
+  // Mesmas regras da RPC para o cartão: sucesso limpa o erro e grava ultimo_sync; falha grava o
+  // texto e status 'erro'; conector 'desconectado' não é ressuscitado (senão o cron voltaria a pegá-lo).
+  async marcarRodadaManual(connectorId: string, tenantId: string, ok: boolean, erro: string | null = null): Promise<void> {
+    const campos = ok
+      ? { status: 'conectado', ultimo_erro: null, ultimo_sync: new Date().toISOString() }
+      : { status: 'erro', ultimo_erro: erro?.slice(0, 500) ?? null }
+    const r = await this.sb.from('connectors').update(campos).eq('id', connectorId).eq('tenant_id', tenantId).neq('status', 'desconectado')
+    checar('marcarRodadaManual', r)
+  }
+
+  // Callback do OAuth gravou credencial nova: limpa o erro antigo e tira de 'erro' (sem ressuscitar
+  // 'desconectado': quem carimba 'conectado' é POST /connectors/:id/test, logo em seguida). Não grava
+  // ultimo_sync nem sync_state: nenhuma leitura de pedidos aconteceu.
+  async marcarCredencialNova(connectorId: string, tenantId: string): Promise<void> {
+    const r = await this.sb.from('connectors').update({ status: 'conectado', ultimo_erro: null }).eq('id', connectorId).eq('tenant_id', tenantId).neq('status', 'desconectado')
+    checar('marcarCredencialNova', r)
   }
 
   async upsertOrders(tenantId: string, connectorId: string, pedidos: PedidoParaRpc[]): Promise<number> {

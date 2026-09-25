@@ -95,12 +95,19 @@ export const CAPS: { key: keyof Connector['capacidades']; label: string }[] = [
   { key: 'nfeCompra', label: 'NF-e de compra' },
 ]
 
-/** O que cada plataforma aceita ao receber produtos do Prodio (pushCatalogo). */
+/**
+ * O que cada plataforma aceitaria ao receber produtos do Prodio. É fato da API da plataforma, não
+ * promessa: nenhum adaptador do worker envia produto hoje (pushCatalogo é false nos três), e a aba
+ * Catálogo diz isso ao lado deste texto.
+ */
 export const PUSH_CATALOGO: Record<Plataforma, { texto: string; ficha: 'sim' | 'nao' | 'confirmar' }> = {
   bling: { texto: 'Bling recebe o produto com estrutura: a ficha técnica do Prodio vira componentes do produto.', ficha: 'sim' },
   tiny: { texto: 'Tiny recebe o produto com estrutura (produto fabricado): a ficha técnica vai junto.', ficha: 'sim' },
   omie: { texto: 'Omie recebe o produto e a malha (estrutura de produto).', ficha: 'sim' },
-  baselinker: { texto: 'BaseLinker recebe o produto no inventário escolhido, sem ficha técnica.', ficha: 'nao' },
+  baselinker: {
+    texto: 'BaseLinker recebe o produto no inventário escolhido. Pela documentação da API (addInventoryProduct), também aceita kit com os componentes vinculados, desde que os componentes já existam lá. A ficha técnica de insumos não vai.',
+    ficha: 'nao',
+  },
   magis5: { texto: 'Magis5: envio de produtos a confirmar com conta de teste. Por enquanto, cadastre no hub e vincule aqui.', ficha: 'confirmar' },
 }
 

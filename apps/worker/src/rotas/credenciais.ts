@@ -207,7 +207,10 @@ export async function rotaOauthCallback(req: Request, env: Env, plataforma: Plat
     if (def.usaRedirect) params.redirect_uri = redirectUri(env, plataforma)
     const tokens = await def.trocar(app, params)
     await db.setCredentials(row.tenant_id, row.id, { ...atuais, ...tokens } as Credenciais)
-    await db.setSyncState(row.id, null, true, null)
+    // Credencial nova: o erro antigo deixa de valer. NÃO é sincronização — antes isto chamava
+    // worker_set_sync_state(ok), que gravava ultimo_sync e o diário do robô (sync_state) sem pedido
+    // nenhum lido, e o cartão dizia "O robô está sincronizando sozinho" logo depois de conectar.
+    await db.marcarCredencialNova(row.id, row.tenant_id)
     log('info', 'oauth.ok', { plataforma, connector: row.id, tenant: row.tenant_id, user: st.userId })
     return pagina(200, `${def.nome} conectado. Pode fechar esta janela e voltar ao Prodio.`, true)
   } catch (e) {

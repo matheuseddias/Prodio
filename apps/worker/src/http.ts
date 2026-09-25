@@ -1,5 +1,6 @@
-// Cliente HTTP dos conectores: fila por conta (serializa chamadas e respeita intervalo mínimo),
-// backoff em 429/5xx/erro de rede, log estruturado. Corpos são sempre string, então repetir é seguro.
+// Cliente HTTP dos conectores: fila por execução (serializa chamadas), intervalo mínimo por conta,
+// prazo por chamada, backoff em 429/5xx/erro de rede, log estruturado. Corpos são sempre string,
+// então repetir é seguro.
 import { log } from './log'
 
 export type FetchFn = (input: string, init?: RequestInit) => Promise<Response>
@@ -15,6 +16,12 @@ export interface OpcoesCliente {
   intervaloMinMs: number // espaçamento entre chamadas da mesma conta
   tentativas?: number // repetições além da primeira (padrão 3)
   esperaMaxMs?: number // teto do backoff (padrão 15 s)
+  // Prazo de cada tentativa (padrão 20 s). Sem prazo, uma plataforma que aceita a conexão e não
+  // responde prendia a rodada do cron até o limite da Cloudflare, que a mata sem passar por catch
+  // nenhum — nada gravado. Com prazo, vira erro comum: repete, e se não passar o cartão mostra.
+  timeoutMs?: number
+  // Instante compartilhado entre execuções para espaçar as chamadas da mesma conta (obterCliente).
+  relogio?: Relogio
   fetchFn?: FetchFn
   sleep?: SleepFn
   agora?: () => number
@@ -50,15 +57,20 @@ export async function calcularEspera(res: Response, tentativa: number, teto: num
   return Math.min(base + Math.floor(Math.random() * 250), teto)
 }
 
+export interface Relogio {
+  liberadoEm: number // ms: a próxima chamada da conta não sai antes disto
+}
+
 export class ClienteHttp {
-  private opts: Required<Pick<OpcoesCliente, 'nome' | 'intervaloMinMs' | 'tentativas' | 'esperaMaxMs'>> &
+  private opts: Required<Pick<OpcoesCliente, 'nome' | 'intervaloMinMs' | 'tentativas' | 'esperaMaxMs' | 'timeoutMs'>> &
     OpcoesCliente
   private fila: Promise<unknown> = Promise.resolve()
-  private liberadoEm = 0
+  private relogio: Relogio
   chamadas = 0
 
   constructor(opts: OpcoesCliente) {
-    this.opts = { tentativas: 3, esperaMaxMs: 15_000, ...opts }
+    this.opts = { tentativas: 3, esperaMaxMs: 15_000, timeoutMs: 20_000, ...opts }
+    this.relogio = opts.relogio ?? { liberadoEm: 0 }
   }
 
   private get fetchFn(): FetchFn {
@@ -81,10 +93,13 @@ export class ClienteHttp {
     return p
   }
 
+  // Reserva a vaga ANTES de dormir: duas execuções no mesmo isolate que chegam juntas pegam vagas
+  // diferentes em vez de acordarem ao mesmo tempo e saírem em rajada.
   private async aguardarIntervalo(): Promise<void> {
-    const espera = this.liberadoEm - this.agora
-    if (espera > 0) await this.sleep(espera)
-    this.liberadoEm = this.agora + this.opts.intervaloMinMs
+    const agora = this.agora
+    const vez = Math.max(agora, this.relogio.liberadoEm)
+    this.relogio.liberadoEm = vez + this.opts.intervaloMinMs
+    if (vez > agora) await this.sleep(vez - agora)
   }
 
   private async executar(url: string, init: RequestInit, opcoes: OpcoesChamada = {}): Promise<Response> {
@@ -95,7 +110,7 @@ export class ClienteHttp {
       this.chamadas++
       let res: Response
       try {
-        res = await this.fetchFn(url, init)
+        res = await this.fetchFn(url, init.signal ? init : { ...init, signal: AbortSignal.timeout(this.opts.timeoutMs) })
       } catch (e) {
         if (!repetivel || tentativa >= max) throw e
         const espera = Math.min(500 * 2 ** tentativa, this.opts.esperaMaxMs)
@@ -116,12 +131,24 @@ export class ClienteHttp {
   }
 }
 
-// Filas compartilhadas por conta dentro do isolate: cron e webhook do mesmo conector não se atropelam.
-const filas = new Map<string, ClienteHttp>()
+// Um cliente NOVO por adaptador (ou seja, por execução), e só o relógio da conta é compartilhado
+// dentro do isolate — cron, botão e webhook do mesmo conector continuam espaçados entre si.
+//
+// Antes o cliente inteiro era guardado aqui e reaproveitado entre execuções, com a `fila` (uma
+// promessa) junto. No Workers isso é uma armadilha de ciclo de morte: quando a Cloudflare cancela
+// uma execução no meio de um fetch (fim do prazo do waitUntil, CPU estourada), a promessa daquele
+// fetch pertence a uma invocação que não existe mais e pode nunca se resolver. A execução seguinte
+// no mesmo isolate encadeava a primeira chamada nela e ficava presa antes de falar com a plataforma
+// — morria de novo sem gravar nada, e assim por diante enquanto o isolate vivesse. Número é dado,
+// não E/S: pode atravessar execuções sem prender ninguém.
+// (developers.cloudflare.com/workers/observability/errors/: "I/O objects ... created in the
+// context of one request handler cannot be accessed from a different request's handler".)
+const relogios = new Map<string, Relogio>()
 export function obterCliente(opts: OpcoesCliente): ClienteHttp {
-  const existente = filas.get(opts.nome)
-  if (existente) return existente
-  const novo = new ClienteHttp(opts)
-  filas.set(opts.nome, novo)
-  return novo
+  let relogio = relogios.get(opts.nome)
+  if (!relogio) {
+    relogio = { liberadoEm: 0 }
+    relogios.set(opts.nome, relogio)
+  }
+  return new ClienteHttp({ ...opts, relogio })
 }

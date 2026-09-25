@@ -9,7 +9,7 @@ import { useStore } from '../../domain/store'
 import type { Connector } from '../../domain/types'
 import { Badge, Button, Card, cx } from '../../ui'
 import { CAPS, META, STATUS_LABEL, STATUS_TONE, type Plataforma } from './ConectorMeta'
-import { CICLO_CRON_MIN, situacaoConector, type TomSituacao } from './ConectorSituacao'
+import { CICLO_CRON_MIN, roboComProblema, situacaoConector, type TomSituacao } from './ConectorSituacao'
 
 export function Logo({ p, size = 'md' }: { p: Plataforma; size?: 'sm' | 'md' }) {
   return (
@@ -89,6 +89,9 @@ export function ConectorCard({ c, onConnect, onConfig }: { c: Connector; onConne
   }
 
   const situacao = situacaoConector(c)
+  // O botão não escreve no diário do robô (sync_state): um clique que deu certo não prova que o
+  // robô voltou. Com o robô morrendo ou parado, o aviso fica na tela junto com o resultado do botão.
+  const avisoRobo = resultado && roboComProblema(situacao) ? situacao : null
 
   return (
     <Card className="flex flex-col">
@@ -104,13 +107,13 @@ export function ConectorCard({ c, onConnect, onConfig }: { c: Connector; onConne
       </div>
 
       <dl className="mt-4 grid grid-cols-3 gap-2 text-[12px]">
-        <div className="min-w-0">
+        <div className="min-w-0" title="Última leitura que deu certo, do robô ou do botão “Sincronizar agora”.">
           <dt className="text-muted">Último sync</dt>
           {/* "Nunca" é a verdade quando o conector está de pé e nada rodou ainda; '—' deixava a
               dúvida entre "não sei" e "não aconteceu". A caixa abaixo explica o resto. */}
           <dd className="truncate font-medium">{c.ultimoSync ? relativo(c.ultimoSync) : podeSincronizar ? 'Nunca' : '—'}</dd>
         </div>
-        <div>
+        <div title="Pedidos confirmados nas últimas 24 h que já estão no Prodio.">
           <dt className="text-muted">Pedidos 24h</dt>
           <dd className="font-medium tabular-nums">{c.pedidos24h !== undefined ? num(c.pedidos24h) : '—'}</dd>
         </div>
@@ -144,6 +147,13 @@ export function ConectorCard({ c, onConnect, onConfig }: { c: Connector; onConne
               </Nota>
             )
           )}
+          {avisoRobo && (
+            <div className="mt-2">
+              <Nota tone={avisoRobo.tom} titulo={avisoRobo.titulo}>
+                {avisoRobo.texto}
+              </Nota>
+            </div>
+          )}
         </div>
       )}
 
@@ -153,7 +163,7 @@ export function ConectorCard({ c, onConnect, onConfig }: { c: Connector; onConne
           return (
             <span
               key={cap.key}
-              title={ok ? 'Suportado' : 'Não suportado'}
+              title={ok ? 'O Prodio faz isto com esta plataforma hoje.' : 'O Prodio não faz isto com esta plataforma hoje.'}
               className={cx(
                 'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium',
                 ok ? 'bg-accent-soft text-accent-text' : 'bg-surface-2 text-faint line-through decoration-faint/60',
