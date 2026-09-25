@@ -10,7 +10,7 @@ import type { Connector } from '../../domain/types'
 import { Badge, Button, Field, Input, Modal, Select, Tabs, Toggle } from '../../ui'
 import { Nota } from './ConectorCard'
 import { ConectorCatalogo } from './ConectorCatalogo'
-import { HISTORICO_SYNC, META, SIGNIFICADOS, STATUS_PLATAFORMA, type Significado } from './ConectorMeta'
+import { HISTORICO_SYNC, META, SIGNIFICADOS, STATUS_PLATAFORMA, STATUS_SO_POR_CODIGO, type Significado } from './ConectorMeta'
 
 type AbaCfg = 'pedidos' | 'catalogo' | 'estoque' | 'sync' | 'desconectar'
 
@@ -23,6 +23,7 @@ export function ConectorConfigModal({ c, onClose }: { c: Connector; onClose: () 
   const { tenantId } = useAuth()
   const [aba, setAba] = useState<AbaCfg>('pedidos')
   const m = META[c.plataforma]
+  const deparaTravado = STATUS_SO_POR_CODIGO.includes(c.plataforma)
 
   // O De-Para de status vive em connector_status_map e as preferências de estoque em
   // connectors.config: as duas coisas são lidas do banco ao abrir e gravadas no Salvar. O padrão
@@ -83,8 +84,10 @@ export function ConectorConfigModal({ c, onClose }: { c: Connector; onClose: () 
         // O id que vale é o que a RPC devolve: `c.id` pode não ser o uuid do banco (conector que
         // a tela conhece antes da linha existir), e aí o De-Para iria para um id inexistente.
         const id = await garantirConector(c, tenantId, { push_estoque: pushOn, dry_run: dryRun })
-        await salvarStatusMap(tenantId, id, mapa)
-        setMapaSalvo(true)
+        if (!deparaTravado) {
+          await salvarStatusMap(tenantId, id, mapa)
+          setMapaSalvo(true)
+        }
         // `setConnector` grava o status junto (mapeadoresConectores.connectorConfigParaBanco). O
         // status de verdade é o que o worker carimbou; reler evita que salvar uma preferência
         // ressuscite um status antigo da tela.
@@ -172,40 +175,48 @@ export function ConectorConfigModal({ c, onClose }: { c: Connector; onClose: () 
 
       {aba === 'pedidos' && (
         <div className="space-y-4">
-          <p className="text-sm text-muted">
-            Cada status da plataforma vira um significado no Prodio. <strong>Demanda</strong> entra na projeção do dia; <strong>Carteira firme</strong> reserva produção; <strong>Enviado</strong> e{' '}
-            <strong>Cancelado</strong> saem da fila.
-          </p>
-          {c.plataforma === 'baselinker' && <Nota>{m.pedidos}</Nota>}
-          {modoApp === 'supabase' && !mapaSalvo && (
-            <Nota tone="warn">Nenhum De-Para gravado ainda para este conector: enquanto não houver mapa salvo, todo pedido que chegar conta como demanda. O que está abaixo é a sugestão padrão — confira e clique em Salvar.</Nota>
+          {deparaTravado ? (
+            <Nota>
+              A Base identifica cada status por um código da sua própria conta, e esta tela ainda não lê essa lista. Por isso nada é gravado aqui: todo pedido confirmado conta como demanda, inclusive o
+              que for cancelado depois — é a regra do Prodio, porque a peça é fabricada antes do cancelamento.
+            </Nota>
+          ) : (
+            <>
+              <p className="text-sm text-muted">
+                Cada status da plataforma vira um significado no Prodio. <strong>Demanda</strong> entra na projeção do dia; <strong>Carteira firme</strong> reserva produção; <strong>Enviado</strong> e{' '}
+                <strong>Cancelado</strong> saem da fila.
+              </p>
+              {modoApp === 'supabase' && !mapaSalvo && (
+                <Nota tone="warn">Nenhum De-Para gravado ainda para este conector: enquanto não houver mapa salvo, todo pedido que chegar conta como demanda. O que está abaixo é a sugestão padrão — confira e clique em Salvar.</Nota>
+              )}
+              <div className="overflow-hidden rounded-lg border border-border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-surface-2 text-[12px] uppercase tracking-wide text-muted">
+                      <th className="px-3 py-2 text-left font-medium">Status em {c.nome.split(' ')[0]}</th>
+                      <th className="px-3 py-2 text-left font-medium">No Prodio</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {STATUS_PLATAFORMA[c.plataforma].map((s) => (
+                      <tr key={s.nome} className="border-t border-border/70">
+                        <td className="px-3 py-2 font-medium">{s.nome}</td>
+                        <td className="px-3 py-2">
+                          <Select value={mapa[s.nome]} onChange={(e) => setMapa((mm) => ({ ...mm, [s.nome]: e.target.value as Significado }))} className="h-9 max-w-[220px]">
+                            {SIGNIFICADOS.map((x) => (
+                              <option key={x.id} value={x.id}>
+                                {x.label}
+                              </option>
+                            ))}
+                          </Select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
-          <div className="overflow-hidden rounded-lg border border-border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-surface-2 text-[12px] uppercase tracking-wide text-muted">
-                  <th className="px-3 py-2 text-left font-medium">Status em {c.nome.split(' ')[0]}</th>
-                  <th className="px-3 py-2 text-left font-medium">No Prodio</th>
-                </tr>
-              </thead>
-              <tbody>
-                {STATUS_PLATAFORMA[c.plataforma].map((s) => (
-                  <tr key={s.nome} className="border-t border-border/70">
-                    <td className="px-3 py-2 font-medium">{s.nome}</td>
-                    <td className="px-3 py-2">
-                      <Select value={mapa[s.nome]} onChange={(e) => setMapa((mm) => ({ ...mm, [s.nome]: e.target.value as Significado }))} className="h-9 max-w-[220px]">
-                        {SIGNIFICADOS.map((x) => (
-                          <option key={x.id} value={x.id}>
-                            {x.label}
-                          </option>
-                        ))}
-                      </Select>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         </div>
       )}
 

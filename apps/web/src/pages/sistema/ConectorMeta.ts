@@ -124,6 +124,14 @@ export const SIGNIFICADOS: { id: Significado; label: string }[] = [
   { id: 'cancelado', label: 'Cancelado' },
 ]
 
+// Plataformas cujo pedido chega com o CÓDIGO do status, não com o nome. O BaseLinker grava
+// String(order_status_id) em orders.external_status (apps/worker/src/conectores/baselinker.ts), e os
+// códigos são da conta de cada cliente. Um De-Para salvo com os nomes fixos abaixo não casa com
+// código nenhum, e worker_upsert_orders deixa com significado nulo todo pedido que não casa quando
+// já existe mapa: os pedidos novos sairiam da demanda sem aviso. Até a tela ler os status reais da
+// conta (getOrderStatusList), a janela não grava De-Para para essas plataformas.
+export const STATUS_SO_POR_CODIGO: readonly Plataforma[] = ['baselinker']
+
 export const STATUS_PLATAFORMA: Record<Plataforma, { nome: string; padrao: Significado }[]> = {
   baselinker: [
     { nome: 'Novo', padrao: 'demanda' },

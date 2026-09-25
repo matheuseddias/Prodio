@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { CAPACIDADES, DECLARADO_SEM_USO, SEM_CAPACIDADE, type Capacidade } from '../../data/mapeadoresConectores'
 import { CAMPOS, OAUTH, TEM_ADAPTADOR, separar } from './ConectorCampos'
-import type { Plataforma } from './ConectorMeta'
+import { STATUS_PLATAFORMA, STATUS_SO_POR_CODIGO, type Plataforma } from './ConectorMeta'
 
 const RAIZ = fileURLToPath(new URL('../../../../..', import.meta.url))
 const ler = (rel: string): string => readFileSync(`${RAIZ}${rel}`, 'utf8')
@@ -251,5 +251,18 @@ describe('contrato: capacidades (os chips do cartão do conector)', () => {
 
   it('plataforma sem adaptador no worker não mostra chip nenhum', () => {
     for (const p of PLATAFORMAS.filter((x) => !TEM_ADAPTADOR[x])) expect(CAPACIDADES[p], p).toEqual(SEM_CAPACIDADE)
+  })
+})
+
+describe('De-Para de status', () => {
+  // O BaseLinker grava o código numérico do status (String(order_status_id)). Um De-Para salvo com
+  // os nomes fixos da tela não casa com código nenhum e, como já existe mapa, worker_upsert_orders
+  // deixa o pedido com significado nulo: os pedidos novos saem da demanda sem aviso. Enquanto o
+  // adaptador gravar o código, a janela não pode gravar De-Para por nome para essa plataforma.
+  it('plataforma que grava o código do status não oferece De-Para por nome', () => {
+    const fonte = semComentarios(ler('apps/worker/src/conectores/baselinker.ts'))
+    expect(fonte).toMatch(/status:\s*String\(p\.order_status_id\)/)
+    expect(STATUS_SO_POR_CODIGO).toContain('baselinker')
+    expect(STATUS_PLATAFORMA.baselinker.every((s) => !/^\d+$/.test(s.nome))).toBe(true)
   })
 })
