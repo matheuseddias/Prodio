@@ -17,11 +17,12 @@ Legenda: **[andamento]** sendo feito agora · **[pesquisa]** falta confirmar fat
 
 ## Robô de pedidos e integrações
 
-1. **[andamento]** O robô nunca chegava a conector nenhum: a consulta que lista os conectores pedia
-   a empresa junto e o banco recusava por ambiguidade (PGRST201). O erro só ia para o log. Mesma
-   consulta no retorno do OAuth do Tiny e do Bling e no webhook do Bling.
-2. **[andamento]** Teste das consultas reais contra um PostgREST de verdade (`pnpm db:test:api`).
-   Os testes de antes usavam banco falso e não pegaram o item 1.
+1. O botão "Sincronizar agora" limpa o erro do cartão e, se o robô estiver parado, o cartão cai no
+   diagnóstico pelo pulso. Conferir, depois de algumas semanas no ar, se as mensagens do cartão
+   estão ajudando o dono a agir (corrigido em 26/09: o robô não chegava a conector nenhum por causa
+   da consulta ambígua PGRST201; agora `pnpm db:test:api` testa as consultas contra PostgREST real).
+2. Estoque bipado com o conector em "erro" nunca é enviado: `enqueue_outbox` só enfileira para
+   conector "conectado", e qualquer falha de sincronização põe o conector em "erro". Pede migration.
 3. Carga inicial configurável na tela ao conectar ("trazer os últimos N dias"). Hoje é por SQL
    (`dias_iniciais`).
 4. De-Para de status com os status reais da conta (getOrderStatusList), gravando o código e
@@ -43,6 +44,10 @@ Legenda: **[andamento]** sendo feito agora · **[pesquisa]** falta confirmar fat
     null where raw is not null`.
 12. O gatilho de auditoria grava uma linha em `audit_log` a cada rodada do robô (cerca de 288 por
     dia por conector). Filtrar as colunas que o robô mexe.
+12a. BaseLinker: todo HTTP 403 vira "o token foi recusado". Um bloqueio de rede ou de firewall
+    mostraria a mesma frase e mandaria o dono trocar um token que está certo.
+12b. Falha do auditor noturno fica só no log; não aparece no cartão.
+12c. `pnpm db:test:api` fora da CI (precisa de Postgres e de rede para baixar o PostgREST).
 
 ## Demanda, produção e compras
 
