@@ -1,0 +1,25 @@
+name: Ajustar Pages
+# Disparo manual, uma vez: põe main como branch de produção do projeto Pages prodio-web
+# (.github/scripts/ajustar-branch-producao.sh). O Publicar confere isso antes de cada envio.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  branch-de-producao:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Branch de produção do prodio-web = main
+        run: bash .github/scripts/ajustar-branch-producao.sh
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
