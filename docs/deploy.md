@@ -43,6 +43,8 @@ supabase db push
 
 O schema é idempotente: rodar de novo não quebra nada.
 
+Esse caminho é o da **primeira** instalação. Depois dela, migration nova entra pelo push em main (seção 10), com controle, backup e ensaio.
+
 ## 3. Criar a empresa e os dados de exemplo
 
 ```bash
@@ -157,7 +159,7 @@ Se `CORS_ORIGENS` em `[vars]` não tiver o endereço da interface, ela falha com
 que fala com o worker (só `localhost` passa). Se `PUBLIC_URL` estiver errado, `/oauth/start` responde
 500 e o botão "Conectar o Tiny" não sai do lugar. A lista completa, com o que cada variável faz, está em `apps/worker/README.md`.
 
-Depois preencha `VITE_WORKER_URL` com esse mesmo endereço: no `.env` da interface para o build local, e **no painel** do Cloudflare Pages (Settings > Variables and Secrets, em Production **e** em Preview) para o site publicado — variável `VITE_*` é lida no build, então o site só enxerga o worker depois de uma publicação nova (`docs/deploy-web.md`, passo 3). O detalhe de cada rota e do e-mail de entrada está em `apps/worker/README.md`.
+Depois preencha `VITE_WORKER_URL` com esse mesmo endereço: no `.env` da interface para o build local, e nas **Variables** do GitHub (seção 10) para o site publicado — variável `VITE_*` é lida no build, então o site só enxerga o worker depois de uma publicação nova. O detalhe de cada rota e do e-mail de entrada está em `apps/worker/README.md`.
 
 Confira que o worker respondeu e que ele aceita a origem da interface:
 
@@ -229,6 +231,70 @@ update public.connectors
 ```
 
 Vale de 1 a 20; valor inválido volta ao padrão 2. No plano Free (10 ms de CPU por execução do cron) fique em 1 ou 2. No pago (30 s de CPU para crons de 5 minutos), 5 a 10 drena uma fila grande mais depressa. Regra prática: páginas × 100 acima do número de pedidos que a conta recebe em 2 horas. Abaixo disso nada se perde, só o pedido novo leva uma ou duas rodadas a mais para entrar.
+
+## 10. Publicação automática (GitHub Actions)
+
+A partir daqui, publicar é fazer push, como no ES: **push em `main` = produção**; push em qualquer outro branch = uma **prévia** só da interface, com o link no resumo do run. Em main, nesta ordem, cada passo só se o anterior deu certo: migrations pendentes (backup cifrado → ensaio → aplicar) → worker → interface. Se qualquer teste falhar, nada é publicado. O mecanismo, as provas e os limites estão em `docs/publicacao-automatica.md`.
+
+### O que cadastrar no GitHub (uma vez, pelo navegador)
+
+Repositório `matheuseddias/Prodio` > **Settings** > **Secrets and variables** > **Actions**. O nome tem de ser exatamente este.
+
+| Aba | Nome | O que é |
+|---|---|---|
+| Secrets | `CLOUDFLARE_API_TOKEN` | token da Cloudflare do passo 1 |
+| Secrets | `CLOUDFLARE_ACCOUNT_ID` | id da conta Cloudflare (passo 2) |
+| Secrets | `SUPABASE_DB_URL` | connection string do **Session pooler** (passo 3) |
+| Secrets | `BACKUP_SENHA` | senha dos backups, gerada e guardada por você (passo 4) |
+| Variables | `VITE_SUPABASE_URL` | `https://xxxx.supabase.co` (Supabase > Settings > API) |
+| Variables | `VITE_SUPABASE_ANON_KEY` | a anon/public key do mesmo lugar |
+| Variables | `VITE_WORKER_URL` | `https://prodio-worker.matheus-ea1.workers.dev` |
+| Variables | `VITE_DOMINIO_EMAIL_XML` | opcional: `prodio.com.br` |
+
+Secrets ninguém lê de volta (nem você: só dá para trocar). Variables são públicas por desenho: as `VITE_*` vão dentro do JavaScript do site (`docs/deploy-web.md`, passo 1). A `service_role`, a `CREDENTIALS_KEY` e os `client_secret` **não** vão para o GitHub: continuam como segredo do worker na Cloudflare (passo 8), e sobrevivem a toda publicação.
+
+Enquanto os dois da Cloudflare não existirem, o workflow só testa e avisa "publicação pulada". Com eles e sem `SUPABASE_DB_URL`, main não publica nada (sem ler o banco não dá para saber se há migration pendente).
+
+Depois de cadastrar tudo, para publicar sem esperar um push novo: **Actions** > **Publicar** > o run mais recente de `main` > **Re-run all jobs** (funciona no navegador do celular e no app do GitHub). Re-run de um run que **não** é o mais recente de main não publica nada, de propósito: poria código velho no ar.
+
+**1. Token da Cloudflare.** Em dash.cloudflare.com > ícone do perfil > **My Profile** > **API Tokens** > **Create Token** > **Custom token** > **Get started**. Nome: `GitHub Actions Prodio`. Em **Permissions**, duas linhas: `Account` · `Workers Scripts` · `Edit` e `Account` · `Cloudflare Pages` · `Edit`. Em **Account Resources**: `Include` · a sua conta. Nada de Zone, nada de filtro de IP (os IPs do GitHub mudam). **Continue to summary** > **Create Token**, copie (aparece uma vez só) e cadastre como `CLOUDFLARE_API_TOKEN`.
+Por que só essas duas: `wrangler deploy` do worker (código, crons, `[vars]`, `[observability]` e o endereço `workers.dev`) só usa endpoints `/workers/scripts/…` e `/workers/subdomain`, todos cobertos por *Workers Scripts: Edit* (esquema da API da Cloudflare, github.com/cloudflare/api-schemas); `wrangler pages deploy` usa *Cloudflare Pages: Edit* (developers.cloudflare.com/pages/how-to/use-direct-upload-with-continuous-integration). O modelo pronto "Edit Cloudflare Workers" (developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions) também funciona, mas dá KV, R2, rotas de zona e mais. Com `CLOUDFLARE_ACCOUNT_ID` definido o wrangler não precisa listar contas, então não é preciso permissão de usuário.
+
+**2. Account ID.** dash.cloudflare.com > **Workers & Pages**: o **Account ID** aparece na coluna da direita (32 letras e números; é o mesmo que vem depois de `dash.cloudflare.com/` na barra de endereço). Cadastre como `CLOUDFLARE_ACCOUNT_ID`.
+
+**3. Connection string do Supabase.** No projeto do Supabase, botão **Connect** (topo) > **Session pooler**. Tem a forma `postgresql://postgres.<ref>:[YOUR-PASSWORD]@aws-<n>-<região>.pooler.supabase.com:5432/postgres`. Troque `[YOUR-PASSWORD]` pela senha do banco (se não souber: Settings > Database > **Reset database password**; o worker e a interface não usam essa senha, usam as chaves da API). Se a senha tiver `@ : / ? #`, gere outra só com letras e números. Cadastre como `SUPABASE_DB_URL`.
+Por que o Session pooler: os runners do GitHub não têm IPv6 (github.com/actions/runner-images/issues/668), e a conexão direta `db.<ref>.supabase.co` é só IPv6 sem o add-on pago de IPv4; o pooler compartilhado é IPv4 em todos os planos, e o modo sessão (porta 5432) mantém a sessão inteira, que o `pg_dump` e a trava do aplicador precisam (supabase.com/docs/guides/database/connecting-to-postgres). A porta 6543 (transaction) é recusada pelo aplicador.
+
+**4. `BACKUP_SENHA`.** Gere você mesmo, no gerenciador de senhas (gerador de senha, 32 caracteres ou mais; o backup recusa menos de 20). Salve lá com o nome "Prodio — senha dos backups do GitHub" e cadastre a mesma como `BACKUP_SENHA`. Sem ela nenhum backup abre — nem por você, nem pelo GitHub, nem por mim. Não mande essa senha em chat.
+
+**5. Branch de produção do Pages = `main`.** O projeto `prodio-web` é de envio direto, e nesse tipo de projeto o painel não tem onde trocar a branch de produção: ela é a escolhida na criação (`wrangler pages project create prodio-web --production-branch main`). Para conferir: Workers & Pages > prodio-web > **Deployments**: o bloco **Production** mostra o branch da versão no ar. O workflow confere pela API antes de cada envio e para com a mensagem "a branch de produção do prodio-web … não é main" se estiver errado. Para corrigir (de um computador, com o mesmo token do passo 1; o painel não tem esse campo em projeto de envio direto):
+
+```bash
+curl -X PATCH "https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/pages/projects/prodio-web" \
+  -H "Authorization: Bearer <TOKEN>" -H "Content-Type: application/json" --data '{"production_branch": "main"}'
+```
+
+As variáveis do painel do Pages (Settings > Variables and Secrets) não valem para envio direto: as `VITE_*` do build agora vêm das Variables do GitHub.
+
+### O que acontece no primeiro push em main
+
+Produção tem as `20260921*` aplicadas à mão e nenhum controle. A primeira execução reaplica as 13 migrations, cada uma na sua transação, e só grava cada uma se **nenhuma linha** de `public` mudar (a prova está em `docs/publicacao-automatica.md`, seção 3). Migration criada depois delas entra normalmente, mesmo que a primeira execução só aconteça semanas depois. Antes disso sai o backup cifrado e roda o ensaio. Daí em diante só roda o que for novo.
+
+### Baixar e restaurar um backup
+
+Cada run que aplicou migration tem, em **Actions** > o run > **Artifacts**, um `backup-producao-AAAAMMDD-HHMMSS-<commit>` guardado 14 dias. Ele fica no repositório privado e só abre com a `BACKUP_SENHA`. Para conferir que presta, restaure num Postgres de teste:
+
+```bash
+unzip backup-producao-*.zip
+docker run --rm -d --name prodio-teste -p 5433:5432 -e POSTGRES_PASSWORD=teste postgres:17
+TESTE_URL=postgres://postgres:teste@localhost:5433/postgres bash supabase/migracoes/restaurar-teste.sh backup-producao-*.dump.gpg
+```
+
+O gpg pede a senha e o script mostra quantas linhas cada tabela tem. Restaurar em produção é outra coisa (nunca por cima; tabela por tabela, com o fundador): `docs/publicacao-automatica.md`, seção 5.
+
+### Plano B: à mão
+
+Tudo continua funcionando sem o GitHub: `pnpm deploy:worker`, `pnpm deploy:web` (confira o `.env` antes) e, para o banco, `BANCO_URL='<session pooler>' pnpm db:aplicar --simular` e depois sem `--simular` (o mesmo aplicador, com controle e trava; o backup à mão é `BANCO_URL=… BACKUP_SENHA=… bash supabase/migracoes/backup.sh <pasta> <nome>`). Não cole mais migration no SQL Editor: o controle não fica sabendo, e a próxima publicação roda o arquivo de novo (é por isso que toda migration tem de ser reexecutável).
 
 ## Conferir se ficou de pé
 

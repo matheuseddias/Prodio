@@ -1,0 +1,7 @@
+# Fim de linha LF no repositório e na cópia de trabalho, em qualquer sistema (inclusive Windows com
+# core.autocrlf=true). O aplicador de migrations registra o sha256 de cada arquivo aplicado e para se ele
+# mudar; sem isto, um checkout no Windows trocaria LF por CRLF e o mesmo arquivo teria outro sha256.
+# O aplicador também normaliza CRLF e BOM antes de calcular (segunda barreira). Scripts .sh com CRLF
+# nem rodam no bash.
+*.sql text eol=lf
+*.sh  text eol=lf

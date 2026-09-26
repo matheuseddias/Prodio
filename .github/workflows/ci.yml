@@ -1,17 +1,25 @@
 name: CI
+# Testes de tudo. Rodam em pull request e, chamados pelo workflow Publicar (workflow_call), em todo push:
+# é lá que eles decidem se algo vai ao ar. Sem gatilho de push aqui para o push não rodar os testes duas
+# vezes. Este workflow não recebe segredo nenhum.
 on:
-  push:
   pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   web-core-worker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       # Sem `version`: o pnpm vem do "packageManager" do package.json. Declarar nos dois lugares faz
       # a action recusar ("Multiple versions of pnpm specified") e o job cair antes de instalar.
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
@@ -32,6 +40,28 @@ jobs:
         options: >-
           --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+      # O db:test:api importa o Db real do worker e o supabase-js: precisa das dependências.
+      - run: pnpm install --frozen-lockfile
       - run: sudo apt-get install -y postgresql-client
-      - run: PGURL=postgres://postgres:postgres@localhost:5432/prodio_test bash supabase/tests/run.sh
+      - name: db:test (migrations, seeds e testes SQL)
+        run: pnpm db:test
+        env:
+          PGURL: postgres://postgres:postgres@localhost:5432/prodio_test
+      # O api.sh cria o banco descartável prodio_api_test ao lado do de PGURL e sobe o PostgREST 12.2.3
+      # (download fixo do GitHub, com sha256 conferido) apontando para ele.
+      - name: db:test:api (consultas reais da web e do worker pelo PostgREST)
+        run: pnpm db:test:api
+        env:
+          PGURL: postgres://postgres:postgres@localhost:5432/postgres
+      - name: db:test:migracoes (aplicador, trava de destrutivas, ensaio e backup)
+        run: pnpm db:test:migracoes
+        env:
+          PGURL: postgres://postgres:postgres@localhost:5432/postgres

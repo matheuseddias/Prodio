@@ -52,7 +52,7 @@ Ver `docs/deploy.md`: gerar os arquivos com `bash supabase/build.sh`, aplicar o 
 
 O Supabase hospeda banco, login e API — não a interface. `apps/web` é uma SPA e precisa de um host estático próprio; até ser publicada, só existe em `localhost`.
 
-Ver `docs/deploy-web.md`: publicar no Cloudflare Pages com domínio gratuito (`pnpm deploy:web`), o que as variáveis `VITE_*` fazem no build e como apontar `app.prodio.com.br`.
+Ver `docs/deploy-web.md`: publicar no Cloudflare Pages com domínio gratuito, o que as variáveis `VITE_*` fazem no build e como apontar `app.prodio.com.br`. Publicar é por push (main = produção, outros branches = prévia): `docs/deploy.md`, seção 10, e `docs/publicacao-automatica.md`.
 
 ## Próximos passos
 

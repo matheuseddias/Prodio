@@ -11,6 +11,8 @@
     "test": "pnpm -r test",
     "db:test": "bash supabase/tests/run.sh",
     "db:test:api": "bash supabase/tests/api.sh",
+    "db:test:migracoes": "bash supabase/tests/migracoes.sh",
+    "db:aplicar": "bash supabase/aplicar-migracoes.sh",
     "deploy:web": "pnpm --filter @prodio/web deploy:pages",
     "deploy:worker": "pnpm --filter @prodio/worker deploy:workers"
   },

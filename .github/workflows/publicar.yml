@@ -1,0 +1,212 @@
+name: Publicar
+# Publicação automática a cada push (docs/deploy.md, "Publicação automática").
+#   main          = produção, nesta ordem e cada passo só se o anterior deu certo:
+#                   migrations pendentes (backup cifrado → ensaio → aplicar) → worker → web.
+#   outro branch  = prévia só da web (sem worker, sem migration); a URL fica no resumo do job.
+# Nada publica se um teste falhar: todo job de publicação depende do job "testes" (o CI inteiro).
+# Só existe gatilho de push: pull request, inclusive de fork, nunca chega aqui nem vê segredo.
+on:
+  push:
+    branches: ['**']
+
+permissions:
+  contents: read
+
+# Produção: uma por vez, sem cancelar a que está no meio (a mais nova espera). Prévia: a nova cancela a
+# anterior do mesmo branch.
+concurrency:
+  group: publicar-${{ github.ref == 'refs/heads/main' && 'producao' || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  testes:
+    uses: ./.github/workflows/ci.yml
+
+  preparar:
+    needs: testes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      alvo: ${{ steps.decidir.outputs.alvo }}
+      publicar: ${{ steps.decidir.outputs.publicar }}
+      pendentes: ${{ steps.decidir.outputs.pendentes }}
+      pg_major: ${{ steps.decidir.outputs.pg_major }}
+    steps:
+      # Credencial do checkout mantida só aqui: o preparar confere se o commit ainda é o topo de main.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - id: decidir
+        name: Decidir o que publicar e conferir segredos, variáveis e migrations pendentes
+        run: bash .github/scripts/preparar.sh
+        env:
+          RAMO: ${{ github.ref_name }}
+          TEM_CLOUDFLARE_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+          TEM_CLOUDFLARE_CONTA: ${{ secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+          TEM_BACKUP_SENHA: ${{ secrets.BACKUP_SENHA != '' }}
+          SUPABASE_DB_URL: ${{ github.ref == 'refs/heads/main' && secrets.SUPABASE_DB_URL || '' }}
+          PGSSLMODE: require
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+          VITE_WORKER_URL: ${{ vars.VITE_WORKER_URL }}
+
+  banco:
+    needs: preparar
+    if: needs.preparar.outputs.alvo == 'producao' && needs.preparar.outputs.publicar == 'sim'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Postgres do ensaio, da mesma versão maior do banco de produção (lida pelo preparar).
+    services:
+      ensaio:
+        image: postgres:${{ needs.preparar.outputs.pg_major }}
+        env:
+          POSTGRES_PASSWORD: ensaio
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PENDENTES: ${{ needs.preparar.outputs.pendentes }}
+      PG_MAJOR: ${{ needs.preparar.outputs.pg_major }}
+      PGSSLMODE: require
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # Re-run de job num run antigo reaproveita as saídas do preparar: confere de novo o topo de main.
+      - name: Este commit ainda é o topo de main
+        run: bash .github/scripts/conferir-topo.sh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Nenhuma migration pendente
+        if: env.PENDENTES == '0'
+        run: echo "Nenhuma migration pendente; o banco não é tocado."
+      - if: env.PENDENTES != '0'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Cliente do Postgres na versão do servidor de produção
+        if: env.PENDENTES != '0'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-common >/dev/null
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y >/dev/null
+          sudo apt-get install -y -qq "postgresql-client-$PG_MAJOR" >/dev/null
+          "/usr/lib/postgresql/$PG_MAJOR/bin/pg_dump" --version
+          echo "PG_BIN=/usr/lib/postgresql/$PG_MAJOR/bin" >> "$GITHUB_ENV"
+          echo "BACKUP_NOME=backup-producao-$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+      - name: Backup cifrado (pg_dump + gpg AES256)
+        if: env.PENDENTES != '0'
+        run: bash supabase/migracoes/backup.sh "$RUNNER_TEMP/backup" "$BACKUP_NOME"
+        env:
+          BANCO_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_SENHA: ${{ secrets.BACKUP_SENHA }}
+      - name: Guardar o backup como artifact (14 dias)
+        if: env.PENDENTES != '0'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ env.BACKUP_NOME }}
+          path: ${{ runner.temp }}/backup/${{ env.BACKUP_NOME }}.dump.gpg
+          retention-days: 14
+          if-no-files-found: error
+          compression-level: 0
+      - name: Ensaio (estrutura de produção num Postgres descartável)
+        if: env.PENDENTES != '0'
+        run: bash supabase/migracoes/ensaio.sh
+        env:
+          BANCO_URL: ${{ secrets.SUPABASE_DB_URL }}
+          ENSAIO_URL: postgres://postgres:ensaio@localhost:5432/postgres
+          COMMIT: ${{ github.sha }}
+      - name: Aplicar as migrations em produção
+        if: env.PENDENTES != '0'
+        run: bash supabase/aplicar-migracoes.sh
+        env:
+          BANCO_URL: ${{ secrets.SUPABASE_DB_URL }}
+          COMMIT: ${{ github.sha }}
+
+  worker:
+    needs: [preparar, banco]
+    if: needs.preparar.outputs.alvo == 'producao' && needs.preparar.outputs.publicar == 'sim'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # Re-run de job num run antigo reaproveita as saídas do preparar: confere de novo o topo de main.
+      - name: Este commit ainda é o topo de main
+        run: bash .github/scripts/conferir-topo.sh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Segredos do worker (SUPABASE_SERVICE_KEY, CREDENTIALS_KEY…) ficam na Cloudflare e sobrevivem ao
+      # deploy; [vars], crons e [observability] vêm do apps/worker/wrangler.toml.
+      - name: Publicar o worker (wrangler deploy)
+        working-directory: apps/worker
+        run: pnpm exec wrangler deploy --message "GitHub Actions ${GITHUB_SHA::7}"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: 'false'
+
+  web-producao:
+    needs: [preparar, worker]
+    if: needs.preparar.outputs.alvo == 'producao' && needs.preparar.outputs.publicar == 'sim'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # Re-run de job num run antigo reaproveita as saídas do preparar: confere de novo o topo de main.
+      - name: Este commit ainda é o topo de main
+        run: bash .github/scripts/conferir-topo.sh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build e publicação da interface (Cloudflare Pages, produção)
+        run: bash .github/scripts/publicar-web.sh
+        env:
+          RAMO: main
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+          VITE_WORKER_URL: ${{ vars.VITE_WORKER_URL }}
+          VITE_DOMINIO_EMAIL_XML: ${{ vars.VITE_DOMINIO_EMAIL_XML }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  web-previa:
+    needs: preparar
+    if: needs.preparar.outputs.alvo == 'previa' && needs.preparar.outputs.publicar == 'sim'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build e prévia da interface (Cloudflare Pages)
+        run: bash .github/scripts/publicar-web.sh
+        env:
+          RAMO: ${{ github.ref_name }}
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+          VITE_WORKER_URL: ${{ vars.VITE_WORKER_URL }}
+          VITE_DOMINIO_EMAIL_XML: ${{ vars.VITE_DOMINIO_EMAIL_XML }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

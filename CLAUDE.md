@@ -18,4 +18,8 @@ Leia `docs/arquitetura.md` antes de tocar em banco, worker ou store. As regras d
 - Telas do chão de fábrica (`apps/web/src/pages/chao/`): alvos de toque de 56px ou mais, feedback sonoro e háptico, funciona sem rede.
 - Banco: toda tabela de domínio tem `tenant_id` e RLS na mesma migration; escrita crítica só por RPC `SECURITY DEFINER` com `assert_member`, `SET search_path = ''` e `REVOKE … FROM public, anon`; ledger append-only; idempotência por chave única. Detalhes em `docs/arquitetura.md`.
 - Números: `num`, `brl`, `pct` de `apps/web/src/domain/format.ts`. Datas: `dataBR`, `horaBR`, `relativo`.
-- Antes de encerrar: `pnpm build`, `pnpm lint`, `pnpm test` e `pnpm db:test` verdes.
+- Publicar é por push: `main` = produção (migrations pendentes com backup cifrado e ensaio → worker → web), qualquer outro branch = prévia só da web. Nada publica com teste vermelho. Não mude o workflow `Publicar`, `.github/scripts/` nem `supabase/aplicar-migracoes.sh` para publicar de outro branch ou para rodar contra produção fora dele. Detalhes em `docs/publicacao-automatica.md`.
+- Migration nova tem de ser reexecutável (`if not exists`, `create or replace`, `drop … if exists` antes de recriar, `insert … where not exists`): o `db:test:migracoes` reaplica tudo sobre banco populado e exige zero linha mudada. Nome `AAAAMMDDhhmmss_nome.sql`, com data posterior à última aplicada.
+- Migration aplicada nunca se edita, renomeia nem apaga (o aplicador compara o sha256 e para). Correção vai num arquivo novo.
+- Migration destrutiva (DROP TABLE/COLUMN/SCHEMA, ALTER COLUMN TYPE, RENAME, TRUNCATE, DELETE, UPDATE fora de corpo de função…) só passa pela trava com a linha `-- prodio:destrutiva-aprovada: <motivo>`, e só entra com o fundador sabendo. Sem BEGIN/COMMIT próprio nem CONCURRENTLY.
+- Antes de encerrar: `pnpm build`, `pnpm lint`, `pnpm test`, `pnpm db:test`, `pnpm db:test:api` e `pnpm db:test:migracoes` verdes.

@@ -27,7 +27,7 @@ Duas consequências práticas:
 
 Regra curta: se vazar e der problema, não é `VITE_*`.
 
-Para o build local, o arquivo é `apps/web/.env` (copiado de `.env.example`). Para o build remoto do Pages, são as variáveis do passo 3.
+Para o build local, o arquivo é `apps/web/.env` (copiado de `.env.example`). Para o build da publicação automática, são as Variables do repositório no GitHub (passo 3).
 
 ## 2. Publicar pela linha de comando (caminho mais rápido)
 
@@ -60,29 +60,13 @@ Três arquivos fazem o Pages se comportar (estão em `apps/web/public/` e vão p
 
 Não há CSP de propósito: a URL do Supabase muda por projeto e uma `connect-src` errada derruba o login sem mensagem de erro clara. Se for ligar, faça **no painel**, em Rules > Transform Rules, com a URL do projeto na lista.
 
-## 3. Ligar o repositório para publicar sozinho a cada push (opcional)
+## 3. Publicar sozinho a cada push: GitHub Actions
 
-**No painel** da Cloudflare, em Workers & Pages > prodio-web > Settings > Builds, conecte o repositório do GitHub e preencha:
+A publicação automática é pelo workflow **Publicar** do GitHub (`docs/deploy.md`, seção 10): push em `main` publica produção depois dos testes, das migrations e do worker; push em outro branch publica uma prévia. As variáveis do build (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_WORKER_URL` e, opcional, `VITE_DOMINIO_EMAIL_XML`) moram nas **Variables** do repositório no GitHub, não no painel do Pages.
 
-| Campo | Valor |
-|---|---|
-| Production branch | `main` |
-| Build command | `pnpm install --frozen-lockfile && pnpm --filter @prodio/web build` |
-| Build output directory | `apps/web/dist` |
-| Root directory | deixe na raiz do repositório (é um monorepo) |
+**Não ligue o repositório no painel do Pages** (Settings > Builds). O `prodio-web` é projeto de envio direto; um build pela Cloudflare publicaria sem os testes, sem o backup e sem as migrations, e fora da ordem banco → worker → interface.
 
-**No painel**, em Settings > Variables and Secrets, adicione as variáveis do build — uma vez em **Production** e outra em **Preview**:
-
-| Variável | Valor |
-|---|---|
-| `VITE_SUPABASE_URL` | `https://xxxx.supabase.co` (Supabase > Settings > API) |
-| `VITE_SUPABASE_ANON_KEY` | a anon/public key do mesmo lugar |
-| `VITE_WORKER_URL` | `https://prodio-worker.<conta>.workers.dev`, quando o worker estiver no ar |
-| `VITE_DOMINIO_EMAIL_XML` | `prodio.com.br`, se o Email Routing de XML já estiver configurado |
-
-Se o build reclamar da versão do pnpm, adicione também `PNPM_VERSION = 10.33.0`.
-
-Lembre da regra do passo 1: alterar uma dessas variáveis **no painel** não muda o site publicado. É preciso disparar um build novo (Deployments > Retry deployment, ou um push).
+Lembre da regra do passo 1: alterar uma `VITE_*` não muda o site publicado. É preciso um build novo (um push, ou **Re-run** do último run de main no GitHub Actions).
 
 ## 4. Avisar o Supabase do novo endereço
 
@@ -178,5 +162,5 @@ No navegador, em uma aba anônima:
 - Publicar sem `VITE_SUPABASE_URL` deixa um Prodio de mentira no ar, com dados de exemplo e sem login. Cheque o `.env` antes de `pnpm deploy:web`.
 - A `service_role` key e a `CREDENTIALS_KEY` só existem como secret do worker. Se uma delas aparecer num `VITE_*`, considere-a vazada e gire a chave.
 - O Pages guarda todas as versões publicadas. Para voltar atrás, **no painel**, em Deployments, use Rollback na versão anterior — não precisa buildar de novo.
-- Cada push numa branch que não é a de produção gera um link `*.prodio-web.pages.dev` público. Não use esses links para dados reais de cliente.
+- Cada push numa branch que não é `main` gera uma prévia `*.prodio-web.pages.dev` pública, que fala com o **banco de produção**: o que for gravado nela, logado, é gravado de verdade.
 - As telas que falam com o worker (XML, conectores) dependem do passo 6: sem a origem liberada lá, elas falham com erro de CORS.
