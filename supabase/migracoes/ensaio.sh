@@ -16,6 +16,8 @@
 set -euo pipefail
 RAIZ="$(cd "$(dirname "$0")/../.." && pwd)"
 falha() { echo "ensaio: ERRO: $*" >&2; exit 1; }
+# Espaço ou quebra de linha colados junto no segredo quebram a URL (ver aplicar-migracoes.sh).
+BANCO_URL="$(printf '%s' "${BANCO_URL:-}" | tr -d ' \t\r\n')"
 [[ -n "${BANCO_URL:-}" && -n "${ENSAIO_URL:-}" ]] || falha "defina BANCO_URL (produção) e ENSAIO_URL (Postgres descartável)"
 [[ "$BANCO_URL" != "$ENSAIO_URL" ]] || falha "ENSAIO_URL é igual a BANCO_URL"
 # O ensaio só roda num Postgres desta máquina (serviço do job ou banco local de teste).

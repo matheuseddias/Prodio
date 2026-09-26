@@ -16,6 +16,9 @@ NOME="${2:-}"
 falha() { echo "backup: ERRO: $*" >&2; exit 1; }
 [[ -n "$DESTINO" && -n "$NOME" ]] || falha "uso: bash supabase/migracoes/backup.sh <pasta-de-saida> <nome-base>"
 [[ "$NOME" =~ ^[A-Za-z0-9._-]+$ ]] || falha "nome-base só com letras, números, ponto, hífen e sublinhado"
+# Espaço ou quebra de linha colados junto no segredo quebram a URL (incidente de 26/09/2026 com o
+# Account ID da Cloudflare); connection string não tem espaço legítimo (senha com espaço vai codificada).
+BANCO_URL="$(printf '%s' "${BANCO_URL:-}" | tr -d ' \t\r\n')"
 [[ -n "${BANCO_URL:-}" ]] || falha "defina BANCO_URL"
 [[ -n "${BACKUP_SENHA:-}" ]] || falha "defina BACKUP_SENHA (segredo do GitHub; sem ela não há backup e nada é aplicado)"
 [[ ${#BACKUP_SENHA} -ge 20 ]] || falha "BACKUP_SENHA curta demais: use 20 caracteres ou mais (docs/deploy.md)"

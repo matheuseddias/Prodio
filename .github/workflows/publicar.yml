@@ -148,7 +148,9 @@ jobs:
       # deploy; [vars], crons e [observability] vêm do apps/worker/wrangler.toml.
       - name: Publicar o worker (wrangler deploy)
         working-directory: apps/worker
-        run: pnpm exec wrangler deploy --message "GitHub Actions ${GITHUB_SHA::7}"
+        run: |
+          source ../../.github/scripts/cloudflare-env.sh
+          pnpm exec wrangler deploy --message "GitHub Actions ${GITHUB_SHA::7}"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

@@ -34,6 +34,9 @@ esac
 falha() { echo "aplicador: ERRO: $*" >&2; exit 1; }
 aviso() { echo "aplicador: $*"; }
 
+# Espaço ou quebra de linha colados junto no segredo quebram a URL (incidente de 26/09/2026 com o
+# Account ID da Cloudflare); connection string não tem espaço legítimo (senha com espaço vai codificada).
+BANCO_URL="$(printf '%s' "${BANCO_URL:-}" | tr -d ' \t\r\n')"
 [[ -n "${BANCO_URL:-}" ]] || falha "defina BANCO_URL (a connection string do banco; no Supabase, a do Session pooler)"
 [[ ! "$BANCO_URL" =~ (:6543([/?]|$)|[?\&]port=6543(\&|$)) ]] \
   || falha "BANCO_URL aponta para a porta 6543 (transaction pooler), que perde a trava de sessão; use o Session pooler, porta 5432"

@@ -12,6 +12,10 @@ done
 # Variável vazia não é "sem variável" para o Vite: o domínio do e-mail de XML ficaria em branco.
 [[ -n "${VITE_DOMINIO_EMAIL_XML:-}" ]] || unset VITE_DOMINIO_EMAIL_XML
 
+# Token e conta limpos (espaço ou quebra de linha colados junto no segredo) e conferidos.
+# shellcheck source=.github/scripts/cloudflare-env.sh
+source "$(dirname "$0")/cloudflare-env.sh"
+
 # A branch de produção do projeto decide se o envio vira produção ou prévia. Confere ANTES de enviar: um
 # projeto criado pelo `wrangler pages deploy` num branch qualquer pode ter esse branch como produção.
 PROJETO=prodio-web # o mesmo de apps/web/wrangler.toml

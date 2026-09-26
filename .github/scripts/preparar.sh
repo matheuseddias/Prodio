@@ -42,6 +42,9 @@ saida publicar sim
 
 # 4. Banco: sem acesso não dá para saber se há migration pendente. Worker e web novos podem chamar
 #    função que só existe depois da migration, então sem essa certeza nada é publicado.
+# Espaço ou quebra de linha colados junto no segredo quebram a URL (incidente de 26/09/2026 com o
+# Account ID da Cloudflare); connection string não tem espaço legítimo (senha com espaço vai codificada).
+SUPABASE_DB_URL="$(printf '%s' "${SUPABASE_DB_URL:-}" | tr -d ' \t\r\n')"
 [[ -n "${SUPABASE_DB_URL:-}" ]] || erro "Falta o segredo SUPABASE_DB_URL (connection string do Session pooler do Supabase). Sem ele não dá para saber se há migration pendente, e publicar worker e web sobre um banco sem as funções que eles chamam quebraria o sistema. Nada foi publicado."
 senha="${SUPABASE_DB_URL#*://}"; senha="${senha%@*}"
 if [[ "$senha" == *:* ]]; then echo "::add-mask::${senha#*:}"; fi
