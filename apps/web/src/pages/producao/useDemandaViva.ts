@@ -34,4 +34,3 @@ export function useDemandaViva() {
   }, [modo, reler])
   return { lendo, reler: modo === 'supabase' ? reler : undefined }
 }
-
