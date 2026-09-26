@@ -62,10 +62,15 @@ Legenda: **[andamento]** sendo feito agora · **[pesquisa]** falta confirmar fat
     - **manual**: a encarregada digita;
     - combinações, por exemplo pedidos de hoje + reposição pela média, ou um modo por família de
       produto.
-15. **[pesquisa]** Prazo de envio e horário de corte (26/09). Confirmar o que a Base, o Tiny e o
-    Bling devolvem por pedido (data limite de envio, data prevista, prazo do marketplace) e se o
-    horário de corte vem pela API ou é configuração da conta. Guardar no pedido a data/hora
-    "enviar até". Onde não vier, horário de corte configurável por canal.
+15. Prazo de envio e horário de corte (26/09). Pesquisa em `docs/pesquisa-prazo-de-envio.md`:
+    nenhum hub manda "enviar até" pronto nem horário de corte. A Base tem a janela de envio do
+    marketplace numa chamada por pedido (`getOrderTransactionData`), sem garantia de que ML, Shopee
+    e Magalu preenchem; Tiny e Bling não expõem. O Prodio calcula o prazo por regra de canal e forma
+    de envio (porta do `slaLimite` do ES) quando o marketplace não manda. **[pesquisa]** Falta o teste
+    em conta real, só leitura.
+15a. `baselinker.ts` lê `date_status_change`, que não existe; o campo é `date_in_status`.
+15b. `demand_for_projection` e `v_demand_by_sku` contam só `demanda` e `carteira`; pela decisão de
+    25/09 a média tem de contar tudo que não for `ignorar` (inclusive cancelado e enviado).
 16. Vínculo de SKU: o pedido só vira demanda de um produto quando o SKU casa com um produto (ou
     alias) do Prodio. Os produtos da Eddias usam SKU ED. Religar os itens de pedido gravados antes
     de o produto existir.
@@ -97,8 +102,10 @@ Legenda: **[andamento]** sendo feito agora · **[pesquisa]** falta confirmar fat
 
 27. **Código de expedição** (26/09). Além do QR do Prodio (serial único), um código só com o SKU
     para bipar na conferência de expedição da Base, do Tiny e do Bling. Formato escolhido no perfil
-    de etiqueta (código de barras Code 128 ou QR). **[pesquisa]** Confirmar se a conferência de cada
-    hub casa pelo SKU ou pelo EAN, para oferecer o conteúdo certo.
+    de etiqueta (código de barras Code 128 ou QR). Pesquisa: os três hubs casam pelo SKU ou pelo EAN
+    (Base exige 6+ caracteres; Tiny só EAN-13). Padrão Code 128 com o SKU exato, só na etiqueta de
+    produto; tamanhos e layout por etiqueta em `docs/pesquisa-prazo-de-envio.md`. Falta teste
+    físico com leitor.
 
 ## Adiados pelo fundador
 
