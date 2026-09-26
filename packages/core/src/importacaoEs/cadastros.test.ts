@@ -83,7 +83,7 @@ describe('insumos', () => {
   it('chapa comprada por chapa (CH) vira un com fator 7,704 e consumo em m2', () => {
     expect(ins('MP9001')).toEqual({
       sku: 'MP9001', nome: 'Chapa Espelho 3mm 3,21x2,40 (exemplo)', unidade_compra: 'un', unidade_consumo: 'm2', fator_conversao: 7.704,
-      ncm: '7009.91.00', minimo: 30.8, custo_referencia: 29.1837, fornecedor_padrao_cnpj: '11222333000181', lead_time_dias: 7,
+      ncm: '7009.91.00', minimo: 30.8, custo_referencia: 31.0981, fornecedor_padrao_cnpj: '11222333000181', lead_time_dias: 7,
     })
     expect(mensagensDe(p, 'insumo', 'MP9001')[0]).toContain('"CH" (chapa)')
   })
@@ -175,7 +175,7 @@ describe('produtos', () => {
     expect(mensagensDe(p, 'produto', 'ED900003').some((m) => m.includes('EAN 2000000000039 repetido'))).toBe(true)
   })
 
-  it('backup de versão antiga (31/05): produto com 9 campos, insumo sem custo, bom sem tipo nem calc, deparaForn string', () => {
+  it('backup de versão antiga (31/05): produto com 9 campos, insumo sem custo médio nem regime, bom sem tipo nem calc, deparaForn string', () => {
     const p = planejar((b) => {
       b.products = b.products.map((x: Record<string, unknown>) => ({ sku: x.sku, nome: x.nome, ncm: x.ncm, ean: x.ean, cmv: x.cmv, icms: x.icms, divisao: x.divisao, categoria: x.categoria, status: x.status }))
       b.insumos = b.insumos.map((i: Record<string, unknown>) => ({ sku: i.sku, nome: i.nome, unidade: i.unidade, valorNfe: i.valorNfe, fornecedor: i.fornecedor, ncm: i.ncm, fatorConversao: i.fatorConversao, unidadeConsumo: i.unidadeConsumo }))
@@ -186,7 +186,10 @@ describe('produtos', () => {
     })
     expect(p.aceito).toBe(true)
     expect(p.payload.produtos.find((x) => x.sku === 'ED900001')).toMatchObject({ familia: 'Espelho', atributos: { cor: 'Preto', tamanho: '40cm', categoria: 'Espelho', divisao: 'Eddias Home' } })
-    expect(p.payload.insumos.every((i) => i.custo_referencia === undefined)).toBe(true)
+    // Sem custo médio e sem regime: o ES (sem regime = sem crédito) usava o valor da NF-e ÷ fator na ficha.
+    expect(Object.fromEntries(p.payload.insumos.map((i) => [i.sku, i.custo_referencia]))).toEqual({
+      MP9001: 38.9408, MP9002: 33, MP9003: 0.7, MP9004: 3.49, MP9005: 11.88, MP9006: 0.0589, MP9007: 18.5, MP9008: undefined,
+    })
     expect(p.payload.fichas.find((f) => f.produto_sku === 'ED900003')?.linhas[0].calc).toBeUndefined()
     expect(p.payload.vinculos.find((v) => v.insumo_sku === 'MP9001')).toMatchObject({ codigo_fornecedor: 'CH3MM-321240' })
     expect(p.origem.sentidoDepara).toBe('sem de/para')

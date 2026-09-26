@@ -8,18 +8,21 @@ import { explodeBom, useStore } from '../../domain/store'
 import { Button, EmptyState, Field, Input, Modal, Table, Td, Th, cx } from '../../ui'
 
 export default function CalcularMinimosModal({ onClose }: { onClose: () => void }) {
-  const { materials, boms, dailyPlan, tenant, upsertMaterial } = useStore()
+  const { materials, boms, demanda, tenant, upsertMaterial } = useStore()
   const [dias, setDias] = useState(String(tenant.diasCobertura))
   const nDias = Math.max(0, Number(dias) || 0)
 
+  // Consumo por dia corrido pela venda dos pedidos (demanda do banco, janela da empresa), explodida pela
+  // ficha. Antes vinha da demanda gravada no plano do dia, que fica zerada quando ninguém aplica o plano.
   const consumoDia = useMemo(() => {
     const out: Record<string, number> = {}
-    for (const l of dailyPlan) {
-      const exp = explodeBom(l.productId, l.demandaDia, boms)
+    for (const p of demanda.produtos) {
+      if (!(p.vendido > 0)) continue
+      const exp = explodeBom(p.productId, p.vendido / demanda.dias, boms)
       for (const [mid, q] of Object.entries(exp)) out[mid] = (out[mid] ?? 0) + q
     }
     return out
-  }, [dailyPlan, boms])
+  }, [demanda, boms])
 
   const linhas = materials
     .map((m) => {
@@ -54,11 +57,11 @@ export default function CalcularMinimosModal({ onClose }: { onClose: () => void 
           <Input type="number" inputMode="numeric" min="1" value={dias} onChange={(e) => setDias(e.target.value)} className="text-right tabular-nums" />
         </Field>
         <p className="text-[12px] text-muted flex-1">
-          Consumo diário = explosão das fichas × demanda/dia de cada produto da linha (projeção automática). Sugerido = consumo diário × {nDias} dias, arredondado para cima. Insumos sem consumo na linha ficam como estão.
+          Consumo diário = explosão das fichas × venda por dia de cada produto (pedidos dos últimos {demanda.dias} dias, inclusive cancelados e enviados). Sugerido = consumo diário × {nDias} dias, arredondado para cima. Insumos sem consumo ficam como estão.
         </p>
       </div>
       {comConsumo.length === 0 ? (
-        <EmptyState title="Sem consumo projetado" description="Nenhum produto da linha com ficha técnica gera consumo destes insumos." />
+        <EmptyState title="Sem consumo projetado" description={`Nenhum produto vendido nos últimos ${demanda.dias} dias tem ficha técnica que consuma estes insumos.`} />
       ) : (
         <Table>
           <thead>

@@ -1,13 +1,40 @@
 import { X, Search, Inbox } from 'lucide-react'
-import { useEffect, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes, type SelectHTMLAttributes } from 'react'
+import { useEffect, useState, type ChangeEvent, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes, type SelectHTMLAttributes } from 'react'
+import { lerNumeroBR, numeroParaCampo } from '../domain/format'
 
 export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ')
+
+// Famílias de utilitária que o chamador costuma trocar. Só a classe sem variante conta: `sm:w-64`
+// convive com o `w-full` do padrão porque a media query já vem depois no CSS.
+const FAMILIAS: [string, RegExp][] = [
+  ['w', /^w-/],
+  ['h', /^h-/],
+  ['min-w', /^min-w-/],
+  ['max-w', /^max-w-/],
+  ['px', /^px-/],
+  ['py', /^py-/],
+  ['fonte', /^text-(xs|sm|base|lg|\d?xl|\[\d)/],
+  ['cor', /^text-(?!(?:xs|sm|base|lg|\d?xl|left|right|center|justify|start|end|ellipsis|clip|wrap|nowrap|balance|pretty)\b|\[\d)/],
+]
+const familia = (c: string) => FAMILIAS.find(([, re]) => re.test(c))?.[0]
+
+/**
+ * Junta as classes padrão de um componente do kit com as do chamador, e a do chamador vence.
+ * O Tailwind v4 ordena o CSS pelo valor, não pela ordem no `className`: `w-full` sai depois de
+ * `w-28`, `h-10` depois de `h-9` e `px-5` depois de `px-2`. Sem isto o `w-28` passado para um
+ * `<Input>` era ignorado e, dentro de tabela, o campo encolhia até esconder o número digitado.
+ */
+export function mesclar(padrao: string, className?: string) {
+  if (!className) return padrao
+  const doChamador = new Set(className.split(/\s+/).map(familia).filter(Boolean))
+  return cx(padrao.split(/\s+/).filter((c) => { const f = familia(c); return !f || !doChamador.has(f) }).join(' '), className)
+}
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
 type Size = 'sm' | 'md' | 'lg'
 
 export function Button({ variant = 'secondary', size = 'md', className, children, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: Size }) {
-  const base = 'inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50'
+  const base = 'inline-flex items-center justify-center gap-2 rounded-lg font-medium whitespace-nowrap transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50'
   const sizes = { sm: 'h-8 px-3 text-[13px]', md: 'h-10 px-4 text-sm', lg: 'h-14 px-6 text-base' }[size]
   const variants = {
     primary: 'bg-accent text-white hover:bg-accent-strong dark:text-slate-900',
@@ -16,7 +43,7 @@ export function Button({ variant = 'secondary', size = 'md', className, children
     danger: 'bg-danger-soft text-danger hover:brightness-95',
   }[variant]
   return (
-    <button className={cx(base, sizes, variants, className)} {...rest}>
+    <button className={mesclar(cx(base, sizes, variants), className)} {...rest}>
       {children}
     </button>
   )
@@ -24,7 +51,9 @@ export function Button({ variant = 'secondary', size = 'md', className, children
 
 export function Card({ className, children, title, actions, padded = true }: { className?: string; children: ReactNode; title?: ReactNode; actions?: ReactNode; padded?: boolean }) {
   return (
-    <section className={cx('bg-surface border border-border rounded-[var(--radius-card)] shadow-[var(--shadow-card)]', className)}>
+    // min-w-0: em grid/flex o cartão pode ficar mais estreito que a tabela de dentro (que rola no
+    // próprio cartão) em vez de empurrar a coluna vizinha para fora da tela.
+    <section className={cx('min-w-0 bg-surface border border-border rounded-[var(--radius-card)] shadow-[var(--shadow-card)]', className)}>
       {(title || actions) && (
         <header className="flex items-center justify-between gap-3 px-5 pt-4 pb-3">
           {title && <h3 className="text-[15px] font-semibold">{title}</h3>}
@@ -52,10 +81,12 @@ export function Badge({ tone = 'neutral', children, className }: { tone?: Tone; 
 export function Stat({ label, value, hint, tone, icon }: { label: string; value: ReactNode; hint?: ReactNode; tone?: Tone; icon?: ReactNode }) {
   const color = tone && tone !== 'neutral' ? { ok: 'text-ok', warn: 'text-warn', danger: 'text-danger', info: 'text-info', accent: 'text-accent-text' }[tone] : ''
   return (
-    <div className="bg-surface border border-border rounded-[var(--radius-card)] shadow-[var(--shadow-card)] p-4 min-w-0">
-      <div className="flex items-center justify-between gap-2 text-[13px] text-muted">
-        <span className="truncate">{label}</span>
-        {icon && <span className="text-faint">{icon}</span>}
+    // h-full: dentro de um <Link> no grid (Painel) os cartões da mesma linha ficam da mesma altura.
+    // O rótulo quebra linha em vez de cortar ("Insumos abaixo do mínimo" em 5 colunas de 1366 px).
+    <div className="h-full bg-surface border border-border rounded-[var(--radius-card)] shadow-[var(--shadow-card)] p-4 min-w-0">
+      <div className="flex items-start justify-between gap-2 text-[13px] leading-snug text-muted">
+        <span className="min-w-0">{label}</span>
+        {icon && <span className="shrink-0 text-faint">{icon}</span>}
       </div>
       <div className={cx('mt-1 text-2xl font-semibold tabular-nums tracking-tight', color)}>{value}</div>
       {hint && <div className="mt-1 text-[12px] text-muted">{hint}</div>}
@@ -79,8 +110,8 @@ export function PageHeader({ title, subtitle, actions, breadcrumb }: { title: st
 export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
-      className={cx(
-        'h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-text placeholder:text-faint focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent',
+      className={mesclar(
+        'h-10 w-full min-w-0 rounded-lg border border-border bg-surface px-3 text-sm text-text placeholder:text-faint focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent aria-[invalid=true]:border-danger aria-[invalid=true]:focus:ring-danger/40',
         className,
       )}
       {...rest}
@@ -88,10 +119,64 @@ export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputEleme
   )
 }
 
+export interface OpcoesNumero {
+  /** Menor valor aceito (inclusive). */
+  min?: number
+  /** Maior valor aceito (inclusive). */
+  max?: number
+  /** Só inteiros: teclado numérico e "2,5" não grava. */
+  inteiro?: boolean
+  /** Valor gravado quando o campo fica vazio; sem ele, vazio não grava e volta ao último valor ao sair. */
+  vazio?: number
+}
+
+/** Rascunho do campo → número a gravar, ou null enquanto não for um número aceito. */
+export function numeroDoRascunho(texto: string, { min, max, inteiro, vazio }: OpcoesNumero = {}): number | null {
+  const n = texto.trim() === '' && vazio !== undefined ? vazio : lerNumeroBR(texto)
+  if (!Number.isFinite(n)) return null
+  if (inteiro && !Number.isInteger(n)) return null
+  if ((min !== undefined && n < min) || (max !== undefined && n > max)) return null
+  return n
+}
+
+/**
+ * Props de um <input> de número em pt-BR. `type="number"` controlado não serve: ao apagar, o
+ * `Number('')` vira 0 e o React reescreve "0" no meio da digitação ("0,5" virava "05" = 5), e a
+ * vírgula some. Aqui o campo é texto com teclado decimal, guarda o rascunho enquanto tem foco e só
+ * chama `onChange` com número aceito. Ao sair, mostra o valor gravado formatado.
+ */
+export function useCampoNumero(value: number, onChange: (v: number) => void, { casas = 6, ...opcoes }: OpcoesNumero & { casas?: number } = {}) {
+  const [rascunho, setRascunho] = useState<string | null>(null)
+  const casasCampo = opcoes.inteiro ? 0 : casas
+  return {
+    type: 'text' as const,
+    inputMode: opcoes.inteiro ? ('numeric' as const) : ('decimal' as const),
+    autoComplete: 'off',
+    value: rascunho ?? numeroParaCampo(value, casasCampo),
+    'aria-invalid': rascunho !== null && numeroDoRascunho(rascunho, opcoes) === null ? true : undefined,
+    onFocus: () => setRascunho(numeroParaCampo(value, casasCampo)),
+    onChange: (e: ChangeEvent<HTMLInputElement>) => {
+      setRascunho(e.target.value)
+      const n = numeroDoRascunho(e.target.value, opcoes)
+      if (n !== null && n !== value) onChange(n)
+    },
+    onBlur: () => setRascunho(null),
+  }
+}
+
+type PropsCampoNumero = Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type' | 'min' | 'max'> &
+  OpcoesNumero & { value: number; onChange: (v: number) => void; casas?: number }
+
+/** Campo de número do desktop (ver `useCampoNumero`). Alinhado à direita, algarismos de largura fixa. */
+export function CampoNumero({ value, onChange, casas, min, max, inteiro, vazio, className, ...rest }: PropsCampoNumero) {
+  const campo = useCampoNumero(value, onChange, { casas, min, max, inteiro, vazio })
+  return <Input {...rest} {...campo} className={cx('text-right tabular-nums', className)} />
+}
+
 export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
-      className={cx('h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-text focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent', className)}
+      className={mesclar('h-10 w-full min-w-0 rounded-lg border border-border bg-surface px-3 text-sm text-text focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent', className)}
       {...rest}
     >
       {children}
@@ -118,18 +203,22 @@ export function SearchInput({ value, onChange, placeholder = 'Buscar…', classN
   )
 }
 
+// A tabela sangra até a borda do cartão (-mx-5): a primeira e a última coluna repõem os 20px do
+// cartão e as do meio usam 12px, para caber em 1366 px sem rolagem lateral. No celular ela mantém
+// 640 px e rola dentro do cartão; no desktop (lg) só rola se o conteúdo não couber mesmo.
 export function Table({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div className={cx('overflow-x-auto -mx-5', className)}>
-      <table className="w-full text-sm min-w-[640px]">{children}</table>
+      <table className="w-full text-sm min-w-[640px] lg:min-w-0">{children}</table>
     </div>
   )
 }
+const CELULA = 'px-3 first:pl-5 last:pr-5'
 export function Th({ children, className, right }: { children?: ReactNode; className?: string; right?: boolean }) {
-  return <th className={cx('text-[12px] font-medium text-muted uppercase tracking-wide px-5 py-2.5 border-b border-border', right ? 'text-right' : 'text-left', className)}>{children}</th>
+  return <th className={mesclar(cx('text-[12px] font-medium text-muted uppercase tracking-wide py-2.5 border-b border-border', CELULA, right ? 'text-right' : 'text-left'), className)}>{children}</th>
 }
 export function Td({ children, className, right, mono }: { children?: ReactNode; className?: string; right?: boolean; mono?: boolean }) {
-  return <td className={cx('px-5 py-3 border-b border-border/70 align-middle', right && 'text-right tabular-nums', mono && 'font-mono text-[13px]', className)}>{children}</td>
+  return <td className={mesclar(cx('py-3 border-b border-border/70 align-middle', CELULA, right && 'text-right tabular-nums', mono && 'font-mono text-[13px]'), className)}>{children}</td>
 }
 
 export function EmptyState({ title, description, action, icon }: { title: string; description?: string; action?: ReactNode; icon?: ReactNode }) {
@@ -203,13 +292,29 @@ export function Kbd({ children }: { children: ReactNode }) {
   return <kbd className="rounded border border-border bg-surface-2 px-1.5 py-0.5 text-[11px] font-mono text-muted">{children}</kbd>
 }
 
-export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: string }) {
+// A bolinha é absoluta e precisa de `left` explícito: sem ele ela nasce no centro do trilho (o
+// <button> herda text-align:center) e, ligada, sai 18px para fora, por cima do rótulo.
+// Trilho 44px, bolinha 20px a 2px da borda: desliza 20px e para a 2px da outra borda.
+export function Toggle({ checked, onChange, label, disabled, ariaLabel }: { checked: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean; ariaLabel?: string }) {
   return (
-    <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} className="inline-flex items-center gap-2">
-      <span className={cx('relative h-6 w-11 rounded-full transition-colors', checked ? 'bg-accent' : 'bg-border')}>
-        <span className={cx('absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform', checked ? 'translate-x-5' : 'translate-x-0.5')} />
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label ? undefined : ariaLabel}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className="group inline-flex max-w-full items-center gap-2.5 text-left align-middle focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <span
+        className={cx(
+          'relative inline-block h-6 w-11 shrink-0 rounded-full transition-colors group-focus-visible:ring-2 group-focus-visible:ring-accent/50 group-focus-visible:ring-offset-2 group-focus-visible:ring-offset-surface',
+          checked ? 'bg-accent' : 'bg-faint/50',
+        )}
+      >
+        <span className={cx('absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow-sm transition-transform', checked ? 'translate-x-5' : 'translate-x-0')} />
       </span>
-      {label && <span className="text-sm">{label}</span>}
+      {label && <span className="min-w-0 text-sm">{label}</span>}
     </button>
   )
 }

@@ -1,3 +1,4 @@
+import { presetsComId } from '@prodio/core/etiquetaTamanhos'
 import { AlertTriangle, Printer, Settings2, Wand2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -7,7 +8,7 @@ import type { Label, LabelKind } from '../../domain/types'
 import { Badge, Button, Card, EmptyState, Field, Select, Table, Td, Th, Toggle, cx } from '../../ui'
 import { EtiquetasHistorico } from './EtiquetasHistorico'
 import { EtiquetasPreview, type GrupoPreview } from './EtiquetasPreview'
-import { DESCRICAO_TIPO, NOME_TIPO, ORDEM_TIPOS, caixasPara, etiquetasDoPedido, perfilDe, resumoPerfis, type ItemPreview, type Req, type Tamanho } from './etiquetasUtils'
+import { DESCRICAO_TIPO, NOME_TIPO, ORDEM_TIPOS, PERFIL_PADRAO, caixasPara, etiquetasDoPedido, perfilDe, resumoPerfis, type ItemPreview, type Req } from './etiquetasUtils'
 
 export default function Etiquetas() {
   const s = useStore()
@@ -21,7 +22,9 @@ export default function Etiquetas() {
   const [sel, setSel] = useState<Record<string, boolean>>({})
   const [qtd, setQtd] = useState<Record<string, number>>({})
   const [tiposOff, setTiposOff] = useState<Record<string, LabelKind[]>>({})
-  const [tam, setTam] = useState<Tamanho>('60x40')
+  // Tamanhos da empresa (Configurações › Etiquetas); banco sem a tabela: os de fábrica. '' = o do perfil de cada família.
+  const tamanhos = useMemo(() => (s.labelSizes.length ? s.labelSizes : presetsComId()), [s.labelSizes])
+  const [tamanhoForcado, setTamanhoForcado] = useState('')
   const [paraAmanha, setParaAmanha] = useState(false)
   const [reqs, setReqs] = useState<Req[] | null>(null)
 
@@ -102,12 +105,16 @@ export default function Etiquetas() {
 
   return (
     <>
+      {/* Impressão: só a pré-visualização, sem margem nem moldura; cada linha do rolo é uma página do tamanho da
+          etiqueta (@page por tamanho em EtiquetasPreview / etiquetasImpressao.ts). */}
       <style>{`@media print {
         aside, header, nav, .no-print { display: none !important; }
-        html, body, #root, main, .h-full { height: auto !important; overflow: visible !important; }
-        .print-area { display: block !important; }
-        .etiqueta { break-inside: avoid; page-break-inside: avoid; }
-        @page { margin: 6mm; }
+        html, body, #root, main, .h-full { height: auto !important; overflow: visible !important; background: #fff !important; }
+        main > div > :not(.print-area) { display: none !important; }
+        main, main > div, .print-area, .print-area > div, .grupo-etq { display: block !important; margin: 0 !important; padding: 0 !important; max-width: none !important; border: 0 !important; box-shadow: none !important; background: #fff !important; }
+        .linha-etq { display: flex !important; break-after: page; break-inside: avoid; }
+        .etiqueta { outline: 0 !important; }
+        @page { margin: 0; }
       }`}</style>
 
       <div className="no-print">
@@ -119,8 +126,8 @@ export default function Etiquetas() {
               <span>
                 <span className="font-medium text-text">Perfis:</span> {perfis.length ? resumoPerfis(perfis) : 'nenhum perfil cadastrado (todas as famílias saem só com Produto)'}
               </span>
-              <Link to="/configuracoes" className="inline-flex items-center gap-1 text-accent-text hover:underline">
-                <Settings2 size={12} /> Configurar perfis de etiqueta
+              <Link to="/configuracoes?aba=etiquetas" className="inline-flex items-center gap-1 text-accent-text hover:underline">
+                <Settings2 size={12} /> Configurar perfis e tamanhos de etiqueta
               </Link>
             </p>
           </div>
@@ -129,9 +136,9 @@ export default function Etiquetas() {
           </Button>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        {/* Coluna lateral fixa (e não 1/3): em 1366 px a tabela de SKUs precisa dos ~750 px para não rolar de lado. */}
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px] 2xl:grid-cols-[minmax(0,1fr)_340px] gap-4 items-start">
           <Card
-            className="xl:col-span-2"
             title="SKUs do plano de hoje"
             padded={false}
             actions={
@@ -171,11 +178,11 @@ export default function Etiquetas() {
                             <input type="checkbox" className="h-4 w-4 accent-[var(--color-accent)]" checked={!!sel[l.productId] && !b} disabled={b} onChange={(e) => setSel((x) => ({ ...x, [l.productId]: e.target.checked }))} aria-label={`Selecionar ${ref.sku}`} />
                           </Td>
                           <Td>
-                            <div className="font-medium whitespace-nowrap">
+                            <div className="font-medium min-w-[160px]">
                               <span className={cx(ref.removido && 'text-muted italic')}>{ref.nome}</span>
                               {ref.cor && <span className="uppercase text-accent-text"> · {ref.cor}</span>}
                             </div>
-                            <div className="text-[12px] text-muted font-mono flex items-center gap-2">
+                            <div className="text-[12px] text-muted font-mono flex flex-wrap items-center gap-x-2 gap-y-1">
                               {ref.sku}
                               {l.projetado === 0 && exigeProjecao && (
                                 <Badge tone={paraAmanha ? 'info' : 'warn'}>
@@ -207,7 +214,7 @@ export default function Etiquetas() {
                                 )
                               })}
                               {perfil.padrao && (
-                                <span className="text-[11px] text-faint" title="Família sem perfil: sai só a etiqueta de produto com prefixo PR.">
+                                <span className="text-[11px] text-faint" title={`Família sem perfil: sai só a etiqueta de produto com prefixo ${PERFIL_PADRAO.prefixo}, no tamanho padrão.`}>
                                   sem perfil
                                 </span>
                               )}
@@ -244,11 +251,15 @@ export default function Etiquetas() {
 
           <Card title="Opções de impressão">
             <div className="space-y-4">
-              <Field label="Tamanho da etiqueta">
-                <Select value={tam} onChange={(e) => setTam(e.target.value as Tamanho)}>
-                  <option value="50x30">50 × 30 mm</option>
-                  <option value="60x40">60 × 40 mm</option>
-                  <option value="100x50">100 × 50 mm</option>
+              <Field label="Tamanho da etiqueta" hint="Cada família sai no tamanho do perfil dela. Escolha um tamanho só para forçar todas nesta impressão.">
+                <Select value={tamanhoForcado} onChange={(e) => setTamanhoForcado(e.target.value)}>
+                  <option value="">Do perfil de cada família</option>
+                  {tamanhos.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.nome}
+                      {t.padrao ? ' (padrão)' : ''}
+                    </option>
+                  ))}
                 </Select>
               </Field>
 
@@ -293,7 +304,7 @@ export default function Etiquetas() {
         </div>
       </div>
 
-      {preview && preview.length > 0 && <EtiquetasPreview grupos={preview} tam={tam} onClose={() => setReqs(null)} />}
+      {preview && preview.length > 0 && <EtiquetasPreview grupos={preview} tamanhos={tamanhos} tamanhoForcado={tamanhoForcado || null} onClose={() => setReqs(null)} />}
 
       <EtiquetasHistorico hoje={hoje} onReimprimir={reimprimir} />
     </>

@@ -3,8 +3,8 @@ import { useState } from 'react'
 import { useStore } from '../../domain/store'
 import { cnpjFmt } from '../../domain/format'
 import type { Tenant } from '../../domain/types'
-import { Button, Card, Input, Select, Toggle } from '../../ui'
-import { DOMINIO_EMAIL_XML } from '../recebimento/nfeUtils'
+import { Button, CampoNumero, Card, Input, Select, Toggle } from '../../ui'
+import { emailXml } from '../recebimento/nfeUtils'
 import { Row, SaveBar } from './ConfigShared'
 
 export default function ConfigEmpresa() {
@@ -12,13 +12,7 @@ export default function ConfigEmpresa() {
   const [f, setF] = useState<Tenant>(tenant)
   const [copiado, setCopiado] = useState(false)
   const dirty = JSON.stringify(f) !== JSON.stringify(tenant)
-  const slug = tenant.nome
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '')
-  const email = `xml@${slug}.${DOMINIO_EMAIL_XML}`
+  const email = emailXml(tenant)
   const copiar = () => {
     try {
       void navigator.clipboard?.writeText(email)
@@ -51,12 +45,13 @@ export default function ConfigEmpresa() {
       </Row>
       <Row label="Margem alvo padrão (%)" hint="Usada na Precificação por canal como meta de margem líquida quando o produto não tem uma margem própria.">
         <div className="flex items-center gap-2 max-w-[160px]">
-          <Input
-            type="number"
+          <CampoNumero
+            inteiro
             min={0}
             max={95}
             value={Math.round(f.margemAlvoPadrao * 100)}
-            onChange={(e) => setF({ ...f, margemAlvoPadrao: Math.min(95, Math.max(0, Number(e.target.value))) / 100 })}
+            onChange={(v) => setF({ ...f, margemAlvoPadrao: v / 100 })}
+            aria-label="Margem alvo padrão (%)"
           />
           <span className="text-sm text-muted">%</span>
         </div>

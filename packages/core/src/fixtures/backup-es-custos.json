@@ -1,0 +1,34 @@
+{
+  "products": [
+    {"sku": "ED900124", "nome": "Espelho Adnet Redondo 60cm - Preto (exemplo)", "cmv": 35.9, "ean": "", "ncm": "7009.91.00", "cor": "Preto", "tipo": "Espelho", "formato": "Redondo", "divisao": "Eddias Home", "categoria": "Espelho", "status": "ativo", "estoque": 0},
+    {"sku": "ED900379", "nome": "Pino Suporte 3D - Preto (exemplo)", "cmv": 0.37, "ean": "", "ncm": "3926.90.90", "cor": "Preto", "tipo": "3D", "divisao": "Eddias", "categoria": "Componente", "status": "ativo", "estoque": 0},
+    {"sku": "ED900500", "nome": "Porta-copos Espelhado (exemplo)", "cmv": 4.2, "ean": "", "ncm": "7009.91.00", "divisao": "Eddias Home", "categoria": "Porta-copos", "status": "ativo", "estoque": 0}
+  ],
+  "insumos": [
+    {"sku": "MP9101", "nome": "Chapa Espelho 3mm 3,21x2,40 (exemplo)", "unidade": "CH", "unidadeConsumo": "m2", "fatorConversao": 7.704, "valorNfe": 300, "valorIpi": 0, "aliqIpi": null, "aliqIcms": 12, "regimeNormal": true, "custoLiquido": 239.58, "custoMedio": 29.1837, "saldo": 0, "minimo": 0, "fornecedor": "", "fornecedores": []},
+    {"sku": "MP9133", "nome": "Filamento PETG 1kg Preto (exemplo)", "unidade": "Un", "unidadeConsumo": "g", "fatorConversao": 1000, "valorNfe": 58.9, "valorIpi": 0, "aliqIcms": 0, "aliqCredSN": 1.25, "regimeNormal": false, "custoLiquido": 58.16375, "custoMedio": 0.0398, "saldo": 0, "minimo": 0, "fornecedor": "", "fornecedores": []},
+    {"sku": "MP9140", "nome": "Montana Rockl Preto rolo 1,40x50m (exemplo)", "unidade": "RL", "unidadeConsumo": "m2", "fatorConversao": 70, "valorNfe": 1650, "valorIpi": 82.5, "aliqIcms": 4, "regimeNormal": true, "custoLiquido": 1437.48, "custoMedio": 0, "saldo": 0, "minimo": 0, "fornecedor": "", "fornecedores": []},
+    {"sku": "MP9145", "nome": "Bolha Inflável rolo 100 un (exemplo)", "unidade": "RL", "unidadeConsumo": "Un", "fatorConversao": 100, "valorNfe": 400.79, "valorIpi": 0, "aliqIcms": 0, "aliqCredSN": 0, "regimeNormal": false, "custoLiquido": 400.79, "custoMedio": 400.79, "saldo": 0, "minimo": 0, "fornecedor": "", "fornecedores": []},
+    {"sku": "MP9163", "nome": "Caixa Embalagem Espelho 60cm (exemplo)", "unidade": "Un", "unidadeConsumo": "Un", "fatorConversao": 1, "valorNfe": 5.9, "valorIpi": 0.3, "aliqIpi": null, "aliqIcms": 18, "regimeNormal": true, "custoLiquido": 4.390485, "custoMedio": -3.12, "saldo": -14, "minimo": 0, "fornecedor": "", "fornecedores": []},
+    {"sku": "MP9172", "nome": "Cola Promabonde 793 Cx 100 Tubos (exemplo)", "unidade": "Caixa", "unidadeConsumo": "Caixa", "fatorConversao": 1, "valorNfe": 553, "valorIpi": 0, "aliqIcms": 18, "regimeNormal": true, "custoLiquido": 411.51495, "custoMedio": 280, "saldo": 0, "minimo": 0, "fornecedor": "", "fornecedores": []},
+    {"sku": "MP9180", "nome": "Etiqueta adesiva 100x50 rolo (exemplo)", "unidade": "Rolo", "unidadeConsumo": "Un", "fatorConversao": 0, "valorNfe": 85, "valorIpi": 0, "aliqIcms": 0, "aliqCredSN": 0, "regimeNormal": false, "custoLiquido": 85, "custoMedio": 85, "saldo": 0, "minimo": 0, "fornecedor": "", "fornecedores": []},
+    {"sku": "MP9190", "nome": "Adesivo de instrução (exemplo)", "unidade": "Un", "unidadeConsumo": "Un", "fatorConversao": 1, "valorNfe": 0, "aliqIcms": 0, "regimeNormal": true, "saldo": 0, "minimo": 0, "fornecedor": "", "fornecedores": []}
+  ],
+  "fornecedores": [],
+  "bom": [
+    {"sku": "ED900124", "mpCode": "MP9101", "consumo": 0.4, "unidade": "m2"},
+    {"sku": "ED900124", "mpCode": "MP9140", "consumo": 0.1414, "unidade": "m2"},
+    {"sku": "ED900124", "mpCode": "MP9145", "consumo": 4, "unidade": "Un"},
+    {"sku": "ED900124", "mpCode": "MP9163", "consumo": 1, "unidade": "Un"},
+    {"sku": "ED900124", "mpCode": "MP9172", "consumo": 0.00025, "unidade": "Caixa"},
+    {"sku": "ED900124", "tipo": "produto", "mpCode": "ED900379", "consumo": 1, "unidade": "un"},
+    {"sku": "ED900379", "mpCode": "MP9133", "consumo": 6.3, "unidade": "g"},
+    {"sku": "ED900500", "mpCode": "MP9180", "consumo": 1, "unidade": "Un"},
+    {"sku": "ED900500", "mpCode": "MP9190", "consumo": 1, "unidade": "Un"},
+    {"sku": "ED900500", "mpCode": "MP9101", "consumo": 0.01, "unidade": "m2"}
+  ],
+  "depara": {},
+  "movs": [
+    {"data": "2026-09-25T17:40:00.000Z", "tipo": "Entrada"}
+  ]
+}

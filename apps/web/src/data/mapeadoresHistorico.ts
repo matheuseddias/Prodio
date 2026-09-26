@@ -2,7 +2,7 @@
 // Regra desta camada: dia sem linha no banco vale zero. Nunca se inventa número nem se repete
 // padrão de outro dia — foi assim que o Painel passou a mostrar produção que não existia.
 import { diaISO } from '../domain/format'
-import type { HistoricoProducaoDia, HistoricoVendasDia } from '../domain/types'
+import type { HistoricoProducaoDia } from '../domain/types'
 import { num } from './mapeadoresCadastros'
 
 /** Teto de segurança para o eixo: um intervalo torto não vira um laço infinito. */
@@ -71,25 +71,4 @@ export function serieProducaoDoBanco(rows: HistoricoProducaoRow[], dias: string[
   }))
 }
 
-// --- Vendas (orders + order_items) ---------------------------------------------------------------
-export interface HistoricoVendasRow {
-  confirmed_at: string | null
-  order_items: { quantidade: number | string }[] | null
-}
-
-/** Dia de calendário local do pedido; pedido sem confirmação não entra na série. */
-export const diaDaVenda = (r: HistoricoVendasRow): string => {
-  const d = r.confirmed_at ? new Date(r.confirmed_at) : null
-  return d && !Number.isNaN(d.getTime()) ? diaISO(d) : ''
-}
-
-export function serieVendasDoBanco(rows: HistoricoVendasRow[], dias: string[]): HistoricoVendasDia[] {
-  const porDia = new Map<string, number>()
-  for (const r of rows) {
-    const dia = diaDaVenda(r)
-    if (!dia) continue
-    const qtd = (r.order_items ?? []).reduce((a, i) => a + num(i.quantidade), 0)
-    porDia.set(dia, (porDia.get(dia) ?? 0) + qtd)
-  }
-  return dias.map((dia) => ({ dia, unidades: porDia.get(dia) ?? 0 }))
-}
+// Vendas por dia: agregadas no banco (RPC sales_by_day); o mapeador está em data/demanda.ts.

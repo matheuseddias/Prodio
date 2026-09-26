@@ -48,6 +48,15 @@ export interface InsumoES {
   minimo?: number
   custoMedio?: number
   aliqIcms?: number
+  /** Campos do custo de tabela do ES (custoLiq): valor unitário da NF-e, IPI e créditos, na unidade de COMPRA. */
+  valorNfe?: number
+  /** Presente (mesmo vazio) vale como valor do IPI; ausente cai no credIpi, como o valIpi do ES. */
+  valorIpi?: number
+  credIpi?: number
+  /** Presente (mesmo vazio) troca o crédito de IPI por valorNfe × aliqIpi, como o creditosCalc do ES. */
+  aliqIpi?: number
+  aliqCredSN?: number
+  regimeNormal: boolean
   fornecedor?: string
   fornecedores: FornecedorDoInsumoES[]
   temSaldo: boolean
@@ -126,6 +135,10 @@ function entradas(x: unknown): [string, unknown][] {
 const campo = (o: Bruto, k: string): unknown => (Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined)
 const bool = (x: unknown): boolean | undefined => (typeof x === 'boolean' ? x : undefined)
 const escalar = (x: unknown): unknown => (typeof x === 'string' ? x.slice(0, 200) : typeof x === 'number' ? x : undefined)
+/** Campo que o ES testa com `!= null`: presente (até "" ou texto) vira número (0 quando não é número). */
+const presente = (x: unknown): number | undefined => (x === undefined || x === null ? undefined : (num(x) ?? 0))
+/** Verdade como no JavaScript do ES (`if (i.regimeNormal)`), sem guardar o valor cru. */
+const verdadeiro = (x: unknown): boolean => (typeof x === 'object' ? x !== null : Boolean(x))
 
 function lerProduto(o: Bruto, indice: number): ProdutoES {
   return {
@@ -164,6 +177,12 @@ function lerInsumo(o: Bruto, indice: number): InsumoES {
     minimo: num(campo(o, 'minimo')),
     custoMedio: num(campo(o, 'custoMedio')),
     aliqIcms: num(campo(o, 'aliqIcms')),
+    valorNfe: num(campo(o, 'valorNfe')),
+    valorIpi: presente(campo(o, 'valorIpi')),
+    credIpi: num(campo(o, 'credIpi')),
+    aliqIpi: presente(campo(o, 'aliqIpi')),
+    aliqCredSN: num(campo(o, 'aliqCredSN')),
+    regimeNormal: verdadeiro(campo(o, 'regimeNormal')),
     fornecedor: texto(campo(o, 'fornecedor'), 200),
     fornecedores: objetos(campo(o, 'fornecedores'))
       .slice(0, 50)

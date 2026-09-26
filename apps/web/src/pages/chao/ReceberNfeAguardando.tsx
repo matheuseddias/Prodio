@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { chaveFmt, dataBR, num } from '../../domain/format'
 import { useLookups, useStore } from '../../domain/store'
 import type { NfeInbound, NfeItem, PurchaseOrder } from '../../domain/types'
+import { useCampoNumero } from '../../ui'
 import { porOcFromItens, previsaoOcs } from '../recebimento/nfeUtils'
 import { beepErro, beepOk } from './feedback'
 import { Chip } from './ReceberNfeItem'
@@ -97,15 +98,7 @@ export function AguardandoXml({ nfe, po }: { nfe: NfeInbound; po?: PurchaseOrder
               </div>
               <label className="mt-3 block">
                 <span className="text-[12px] text-slate-400">Recebido ({pi.unidadeCompra})</span>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min={0}
-                  step="any"
-                  value={q}
-                  onChange={(e) => setQtds((s) => ({ ...s, [pi.id]: Math.max(0, Number(e.target.value) || 0) }))}
-                  className="mt-1 h-14 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-[22px] font-semibold tabular-nums text-slate-100 focus:border-teal-400 focus:outline-none"
-                />
+                <CampoRecebido value={q} onChange={(v) => setQtds((s) => ({ ...s, [pi.id]: v }))} />
               </label>
               <div className="mt-2 flex items-baseline justify-between text-[14px]">
                 <span className="text-slate-400">Entra no estoque</span>
@@ -134,6 +127,12 @@ export function AguardandoXml({ nfe, po }: { nfe: NfeInbound; po?: PurchaseOrder
 }
 
 // ---------------------------------------------------------------------------
+
+/** Quantidade recebida (texto com teclado decimal: com type=number, "2,5" virava 25 ao apagar e redigitar). */
+function CampoRecebido({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const campo = useCampoNumero(value, onChange, { min: 0, vazio: 0 })
+  return <input {...campo} className="mt-1 h-14 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-[22px] font-semibold tabular-nums text-slate-100 focus:border-teal-400 focus:outline-none" />
+}
 
 export function Sucesso({ resumo, onVoltar }: { resumo: Resumo; onVoltar: () => void }) {
   return (

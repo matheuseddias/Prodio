@@ -2,7 +2,8 @@
 // estado) e pelo store (atualização otimista antes da resposta do backend). Comportamento idêntico
 // ao antigo StoreProvider.
 import { diaProducao } from '../domain/format'
-import type { Bom, Channel, Label, NfeInbound, OutboxItem, Product, PurchaseOrder, ScanEvent, StockMove } from '../domain/types'
+import { PERFIL_PADRAO } from '@prodio/core/etiquetas'
+import type { Bom, Channel, DailyPlanLine, Label, LabelSize, NfeInbound, OutboxItem, Product, PurchaseOrder, ScanEvent, StockMove } from '../domain/types'
 import type { ScanResult, Snapshot } from './repo'
 
 export interface Resultado<T = void> {
@@ -70,14 +71,30 @@ export function setProjetado(s: Snapshot, productId: string, projetado: number):
   }
 }
 
+/**
+ * Linhas sugeridas entram no plano de hoje só para produto que ainda não está nele: o que a encarregada
+ * já ajustou (ou outra sugestão aplicada antes) nunca é sobrescrito. Linha com projetado zero não entra.
+ */
+export function adicionarAoPlano(s: Snapshot, linhas: DailyPlanLine[]): Resultado<DailyPlanLine[]> {
+  const ja = new Set(s.dailyPlan.map((l) => l.productId))
+  const novas: DailyPlanLine[] = []
+  for (const l of linhas) {
+    if (ja.has(l.productId) || !(l.projetado > 0)) continue
+    ja.add(l.productId)
+    novas.push({ ...l, impresso: 0, bipado: 0 })
+  }
+  return { estado: novas.length ? { ...s, dailyPlan: [...s.dailyPlan, ...novas] } : s, valor: novas }
+}
+
 export function printLabels(s: Snapshot, productId: string, qtd: number, tipo: 'unidade' | 'caixa' = 'unidade'): Resultado<Label[]> {
   const p = s.products.find((x) => x.id === productId)
   if (!p) return { estado: s, valor: [] }
   const dia = diaDoTenant(s)
   const diaCompacto = dia.replace(/-/g, '').slice(2)
   const perfil = s.tenant.perfisEtiqueta.find((x) => x.familia === p.familia)
-  const prefix = perfil?.prefixo ?? 'PR'
-  const porCaixa = perfil?.unidadesPorCaixa ?? 6
+  // Família sem perfil: o mesmo que a RPC reserve_label_batch grava (ET, 1 por caixa).
+  const prefix = perfil?.prefixo ?? PERFIL_PADRAO.prefixo
+  const porCaixa = perfil?.unidadesPorCaixa ?? PERFIL_PADRAO.unidadesPorCaixa
   const seqInicial = s.labels.filter((l) => l.productId === productId && l.dia === dia).length
   const novas: Label[] = []
   for (let i = 1; i <= qtd; i++) {
@@ -160,4 +177,31 @@ export function upsertOperator(s: Snapshot, o: { id?: string; nome: string; pin?
   const atual = o.id ? s.operators.find((x) => x.id === o.id) : undefined
   const op = { id: o.id ?? id, nome: o.nome, pin: o.pin ?? atual?.pin ?? '' }
   return { ...s, operators: upsertLista(s.operators, op) }
+}
+
+const ordemTamanho = (a: LabelSize, b: LabelSize) => a.larguraMm - b.larguraMm || a.alturaMm - b.alturaMm || a.nome.localeCompare(b.nome, 'pt-BR')
+
+/**
+ * Tamanho de etiqueta, como a RPC save_label_size: marcar padrão tira o do anterior e o primeiro tamanho vira
+ * padrão. Desmarcar o único padrão não muda nada (a tela não deixa; o banco recusa).
+ */
+export function saveLabelSize(s: Snapshot, t: LabelSize): Snapshot {
+  // Mudou a medida de um tamanho de fábrica: deixa de ser "de fábrica" (igual à RPC).
+  const antes = s.labelSizes.find((x) => x.id === t.id)
+  const novo = antes?.preset && (antes.larguraMm !== t.larguraMm || antes.alturaMm !== t.alturaMm) ? { ...t, preset: undefined } : t
+  let lista = upsertLista(s.labelSizes, novo)
+  if (t.padrao) lista = lista.map((x) => (x.id === t.id ? x : { ...x, padrao: false }))
+  if (!lista.some((x) => x.padrao)) {
+    if (lista.length > 1) return s
+    lista = lista.map((x) => ({ ...x, padrao: true }))
+  }
+  return { ...s, labelSizes: [...lista].sort(ordemTamanho) }
+}
+
+/** Apaga um tamanho que não é o padrão; os perfis que o usavam voltam ao padrão (tamanhoId nulo). */
+export function removeLabelSize(s: Snapshot, id: string): Snapshot {
+  const alvo = s.labelSizes.find((x) => x.id === id)
+  if (!alvo || alvo.padrao) return s
+  const perfisEtiqueta = s.tenant.perfisEtiqueta.map((p) => (p.tamanhoId === id ? { ...p, tamanhoId: null } : p))
+  return { ...s, labelSizes: s.labelSizes.filter((x) => x.id !== id), tenant: { ...s.tenant, perfisEtiqueta } }
 }

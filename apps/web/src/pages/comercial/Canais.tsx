@@ -41,7 +41,7 @@ export default function Canais({ impostoPadrao }: { impostoPadrao: number }) {
                     {c.ativo ? <Badge tone="ok">ativo</Badge> : <Badge>inativo</Badge>}
                   </div>
                 </div>
-                <Toggle checked={c.ativo} onChange={(v) => s.upsertChannel({ ...c, ativo: v })} />
+                <Toggle checked={c.ativo} onChange={(v) => s.upsertChannel({ ...c, ativo: v })} ariaLabel={`Canal ${c.nome} ativo`} />
               </div>
               <ul className="mt-3 flex flex-col gap-1 text-[13px]">
                 {resumoTaxas(c).map((t) => (

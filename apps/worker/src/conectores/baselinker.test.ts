@@ -83,6 +83,21 @@ describe('BaseLinker · pullOrders', () => {
     const p = normalizarPedidoBaseLinker({ order_id: 1, order_status_id: 7, date_confirmed: BASE, products: [] })
     expect('raw' in p).toBe(false)
   })
+
+  // docs/melhorias.md 15a: o campo do getOrders é date_in_status (desde quando o pedido está no
+  // status atual). O nome antigo, date_status_change, não existe na API.
+  it('updatedAt vem de date_in_status; sem ele, cai na confirmação e depois na criação', () => {
+    const mudou = normalizarPedidoBaseLinker({ order_id: 2, order_status_id: 9, date_add: BASE - 60, date_confirmed: BASE, date_in_status: BASE + 3600, products: [] })
+    expect(mudou.updatedAt).toBe(new Date((BASE + 3600) * 1000).toISOString())
+    expect(mudou.confirmedAt).toBe(new Date(BASE * 1000).toISOString())
+    const semStatus = normalizarPedidoBaseLinker({ order_id: 3, order_status_id: 9, date_add: BASE - 60, date_confirmed: BASE, products: [] })
+    expect(semStatus.updatedAt).toBe(new Date(BASE * 1000).toISOString())
+    const soCriado = normalizarPedidoBaseLinker({ order_id: 4, order_status_id: 9, date_add: BASE - 60, products: [] })
+    expect(soCriado.updatedAt).toBe(new Date((BASE - 60) * 1000).toISOString())
+    // O nome que não existe não é mais lido: um campo com esse nome não muda nada.
+    const antigo = normalizarPedidoBaseLinker({ order_id: 5, order_status_id: 9, date_confirmed: BASE, date_status_change: BASE + 7200, products: [] } as Parameters<typeof normalizarPedidoBaseLinker>[0])
+    expect(antigo.updatedAt).toBe(new Date(BASE * 1000).toISOString())
+  })
 })
 
 // O cursor de pullOrdersPagina é gravado pelo cron depois de CADA página: ele nunca pode passar à

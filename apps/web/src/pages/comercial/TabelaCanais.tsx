@@ -1,11 +1,23 @@
 import { ArrowDownToLine, ChevronRight } from 'lucide-react'
 import { brl } from '../../domain/format'
-import { avaliarPreco, precoParaMargem } from '@prodio/core'
+import { avaliarPreco, custosDoCanal, precoParaMargem, type ResultadoPreco } from '@prodio/core'
 import { useStore } from '../../domain/store'
 import type { Channel, Product } from '../../domain/types'
 import { Badge, Button, Card, Table, Td, Th, cx } from '../../ui'
 import { MargemBadge, NumInput } from './campos'
 import { pctBR } from './precoUtils'
+
+// Comissão, taxa fixa, frete, imposto, ads, parcelamento e outros: a decomposição inteira fica no detalhe do canal
+// (clique na linha); aqui entra a soma (core: custosDoCanal), para a tabela caber no cartão em 1366 px sem rolar de lado.
+const partes = (x: ResultadoPreco): [string, number][] => [
+  ['Comissão', x.comissao],
+  ['Taxa fixa', x.taxaFixa],
+  ['Frete', x.frete],
+  ['Imposto', x.imposto],
+  ['Ads', x.ads],
+  ['Parcelamento', x.parcelamento],
+  ['Outros', x.outros],
+]
 
 export default function TabelaCanais({
   produto,
@@ -58,17 +70,14 @@ export default function TabelaCanais({
             <tr>
               <Th>Canal</Th>
               <Th right>Sugerido</Th>
-              <Th right>Comissão</Th>
-              <Th right>Taxa fixa</Th>
-              <Th right>Frete</Th>
-              <Th right>Imposto</Th>
-              <Th right>Ads</Th>
-              <Th right>Parcel.</Th>
-              <Th right>Outros</Th>
-              <Th right>Lucro</Th>
-              <Th right>Praticado hoje</Th>
-              <Th right>Margem hoje</Th>
-              <Th />
+              <Th right className="hidden 2xl:table-cell">
+                <span title="Comissão, taxa fixa, frete, imposto, ads, parcelamento e outros, no preço sugerido">Custos</span>
+              </Th>
+              <Th right className="whitespace-nowrap">Praticado hoje</Th>
+              <Th right className="whitespace-nowrap">Margem hoje</Th>
+              <Th>
+                <span className="sr-only">Aplicar</span>
+              </Th>
             </tr>
           </thead>
           <tbody>
@@ -85,7 +94,7 @@ export default function TabelaCanais({
                     <div className="flex items-center gap-1.5">
                       <ChevronRight size={14} className={cx('text-faint transition-transform', ativo && 'rotate-90')} />
                       <div className="min-w-0">
-                        <div className="font-medium truncate max-w-[180px]">{c.nome}</div>
+                        <div className="font-medium leading-snug max-w-[220px]">{c.nome}</div>
                         <div className="text-[11px] text-muted">
                           {c.comissaoPct}% com.{c.taxaFixa ? ` · fixa ${brl(c.taxaFixa)}` : ''}
                           {c.freteVendedor.length ? ' · frete' : ''}
@@ -93,15 +102,15 @@ export default function TabelaCanais({
                       </div>
                     </div>
                   </Td>
-                  <Td right className="font-semibold text-accent-text">{brl(sugerido.preco)}</Td>
-                  <Td right className="text-muted">{brl(sugerido.comissao)}</Td>
-                  <Td right className="text-muted">{brl(sugerido.taxaFixa)}</Td>
-                  <Td right className="text-muted">{brl(sugerido.frete)}</Td>
-                  <Td right className="text-muted">{brl(sugerido.imposto)}</Td>
-                  <Td right className="text-muted">{brl(sugerido.ads)}</Td>
-                  <Td right className="text-muted">{brl(sugerido.parcelamento)}</Td>
-                  <Td right className="text-muted">{brl(sugerido.outros)}</Td>
-                  <Td right className="text-ok font-medium">{brl(sugerido.lucro)}</Td>
+                  <Td right>
+                    <div className="font-semibold text-accent-text whitespace-nowrap">{brl(sugerido.preco)}</div>
+                    <div className="text-[11px] text-ok whitespace-nowrap">lucro {brl(sugerido.lucro)}</div>
+                  </Td>
+                  <Td right className="hidden 2xl:table-cell text-muted">
+                    <span className="whitespace-nowrap" title={partes(sugerido).map(([k, v]) => `${k}: ${brl(v)}`).join('\n')}>
+                      {brl(custosDoCanal(sugerido))}
+                    </span>
+                  </Td>
                   <Td right>
                     <div onClick={(e) => e.stopPropagation()} className="flex flex-col items-end gap-0.5">
                       <NumInput
@@ -111,11 +120,11 @@ export default function TabelaCanais({
                         min={0}
                         allowEmpty
                         placeholder="—"
-                        className="w-32"
+                        className="w-28"
                         ariaLabel={`Preço praticado em ${c.nome}`}
                       />
                       {dif !== undefined && Math.abs(dif) >= 0.01 && (
-                        <span className={cx('text-[11px] tabular-nums', dif < 0 ? 'text-warn' : 'text-muted')}>
+                        <span className={cx('text-[11px] tabular-nums whitespace-nowrap', dif < 0 ? 'text-warn' : 'text-muted')}>
                           {dif > 0 ? '+' : '−'}
                           {brl(Math.abs(dif))} vs. sugerido
                         </span>
@@ -140,8 +149,10 @@ export default function TabelaCanais({
                         onClick={() => s.setPrecoVenda(produto.id, c.id, sugerido.preco)}
                         disabled={praticado !== undefined && Math.abs(praticado - sugerido.preco) < 0.005}
                         title="Aplicar preço sugerido"
+                        aria-label={`Aplicar preço sugerido em ${c.nome}`}
                       >
-                        <ArrowDownToLine size={14} /> Aplicar
+                        <ArrowDownToLine size={14} />
+                        <span className="hidden 2xl:inline">Aplicar</span>
                       </Button>
                     </div>
                   </Td>
@@ -152,7 +163,7 @@ export default function TabelaCanais({
         </Table>
       </div>
       <div className="px-5 py-3 border-t border-border text-[12px] text-muted">
-        Clique numa linha para ver a decomposição e simular outro preço. Preços sugeridos terminam em ,x9 e já cobrem comissão, taxa fixa, frete do vendedor, imposto, ads, parcelamento e outros.
+        Clique numa linha para ver a decomposição (comissão, taxa fixa, frete, imposto, ads, parcelamento e outros) e simular outro preço. Preços sugeridos terminam em ,x9 e já cobrem todos esses custos.
       </div>
     </Card>
   )

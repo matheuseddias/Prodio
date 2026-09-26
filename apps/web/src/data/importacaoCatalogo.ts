@@ -8,8 +8,11 @@ import { lerResultadoImportacao, type PayloadImportacao, type ResultadoImportaca
 import type { Parte } from './repo'
 import { rpc, type Ctx } from './supabaseCtx'
 
-/** Fatias do Snapshot que a importação muda: relidas depois de gravar. */
-export const FATIAS_DO_CATALOGO: Parte[] = ['suppliers', 'materials', 'boms', 'products']
+/**
+ * Fatias do Snapshot que a importação muda: relidas depois de gravar. `demanda` entra porque a importação
+ * religa os itens de pedido que estavam sem produto (import_catalog_order_items).
+ */
+export const FATIAS_DO_CATALOGO: Parte[] = ['suppliers', 'materials', 'boms', 'products', 'demanda']
 
 /** Teto do payload na RPC (import_catalog_validate). Conferido antes, para o erro sair em português e sem ida ao banco. */
 export const LIMITE_PAYLOAD_BYTES = 5 * 1024 * 1024

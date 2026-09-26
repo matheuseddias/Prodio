@@ -1,5 +1,7 @@
-// Insumos do ES → materials. Chave: SKU (maiúsculas, sem espaços). Saldo, créditos, alíquotas, setor e
-// processo ficam de fora (saldo é ledger; o Prodio credita pelo XML).
+// Insumos do ES → materials. Chave: SKU (maiúsculas, sem espaços). Saldo, setor e processo ficam de fora (saldo é
+// ledger); valor da NF-e, IPI, créditos e alíquotas só entram na conta do custo de referência (custos.ts) — o
+// Prodio credita pelo XML.
+import { custoReferenciaES } from './custos'
 import { cnpjDoNome, type ResultadoFornecedores } from './fornecedores'
 import type { BackupES, FornecedorDoInsumoES } from './ler'
 import { arred, ncm, SKU_VALIDO, sku, unidade, type CodigoUnidade, type UnidadeLida } from './normalizar'
@@ -11,6 +13,8 @@ export interface InsumoPlanejado {
   nome: string
   unidadeConsumo: CodigoUnidade
   fator: number
+  /** Custo de referência enviado (R$ por unidade de consumo); ausente quando o ES não tem custo. */
+  custo?: number
   aliqIcms?: number
   fornecedores: FornecedorDoInsumoES[]
   fornecedorPadrao?: string
@@ -85,8 +89,12 @@ export function planejarInsumos(bk: BackupES, forn: ResultadoFornecedores, reg: 
     const f = i.fatorConversao !== undefined && i.fatorConversao > 0 ? arred(i.fatorConversao, 6) : 1
     const fator = f > 0 && f < MAX_FATOR ? f : 1
     if (f >= MAX_FATOR) avisos.push(`fator de conversão ${f} fora da faixa aceita (até ${MAX_FATOR}); gravado 1, confira no Prodio`)
+    if (i.fatorConversao !== undefined && !(i.fatorConversao > 0)) avisos.push(`fator de conversão ${i.fatorConversao} no ES; gravado 1 (como o ES calcula), confira`)
     if (compra.codigo === consumo && fator !== 1 && !compra.embalagem) {
       avisos.push(`compra e consumo em ${consumo} com fator ${fator}: confira o fator de conversão`)
+    }
+    if (compra.codigo !== consumo && fator === 1) {
+      avisos.push(`compra em ${compra.codigo} e consumo em ${consumo} com fator 1 (1 ${compra.codigo} = 1 ${consumo}?): confira o fator de conversão; o custo por ${consumo} e a entrada da NF-e dependem dele`)
     }
 
     const item: InsumoImport = { sku: s, nome: i.nome, unidade_compra: compra.codigo, unidade_consumo: consumo, fator_conversao: fator }
@@ -97,9 +105,9 @@ export function planejarInsumos(bk: BackupES, forn: ResultadoFornecedores, reg: 
       if (i.minimo >= 0 && i.minimo < MAX_QTD) item.minimo = arred(i.minimo, 4)
       else avisos.push('estoque mínimo inválido no ES; não enviado')
     }
-    const custo = i.custoMedio !== undefined && i.custoMedio > 0 && i.custoMedio < MAX_QTD ? arred(i.custoMedio, 4) : 0
-    if (custo > 0) item.custo_referencia = custo
-    else avisos.push('sem custo no ES (custo médio zerado ou ausente); custo de referência não enviado')
+    const custo = custoReferenciaES(i, compra.codigo, consumo)
+    if (custo.custo !== undefined) item.custo_referencia = custo.custo
+    avisos.push(...custo.avisos)
 
     if (i.fornecedor) {
       const r = cnpjDoNome(forn, i.fornecedor)
@@ -118,6 +126,7 @@ export function planejarInsumos(bk: BackupES, forn: ResultadoFornecedores, reg: 
       nome: i.nome,
       unidadeConsumo: consumo,
       fator,
+      custo: custo.custo,
       aliqIcms: i.aliqIcms,
       fornecedores: i.fornecedores,
       fornecedorPadrao: i.fornecedor,

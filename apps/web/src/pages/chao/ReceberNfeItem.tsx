@@ -2,7 +2,7 @@ import { Camera, Check, Link2, TriangleAlert } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { brl, num } from '../../domain/format'
 import { useLookups, useStore } from '../../domain/store'
-import { cx } from '../../ui'
+import { cx, useCampoNumero } from '../../ui'
 import { cfopInfo, pendenteOcConsumo } from '../recebimento/nfeUtils'
 import { MOTIVOS, type ItemConf } from './ReceberNfeTipos'
 
@@ -21,6 +21,8 @@ export function Chip({ tone, children }: { tone: 'ok' | 'warn' | 'danger' | 'neu
 export function ReceberNfeItem({ item: it, poIds, onPatch, onVincular }: { item: ItemConf; poIds: string[]; onPatch: (p: Partial<ItemConf>) => void; onVincular: () => void }) {
   const store = useStore()
   const { material } = useLookups()
+  // Texto com teclado decimal: com type=number, apagar para digitar "2,5" regravava 0 e a vírgula sumia (virava 25).
+  const campoQtd = useCampoNumero(it.qtdRec ?? it.qCom, (v) => onPatch({ qtdRec: v }), { min: 0, vazio: 0 })
   const info = cfopInfo(it.cfop)
   const m = it.materialId ? material(it.materialId) : undefined
   const fator = it.fator ?? m?.fatorConversao ?? 1
@@ -120,12 +122,7 @@ export function ReceberNfeItem({ item: it, poIds, onPatch, onVincular }: { item:
           <label className="block">
             <span className="text-[12px] text-slate-400">Quantidade recebida ({it.uCom})</span>
             <input
-              type="number"
-              inputMode="decimal"
-              min={0}
-              step="any"
-              value={it.qtdRec ?? it.qCom}
-              onChange={(e) => onPatch({ qtdRec: Math.max(0, Number(e.target.value) || 0) })}
+              {...campoQtd}
               className="mt-1 h-14 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-[22px] font-semibold tabular-nums text-slate-100 focus:border-amber-400 focus:outline-none"
             />
           </label>

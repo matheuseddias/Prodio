@@ -7,7 +7,7 @@
     {"cnpj":"98765432000198","nome":"Plásticos Teste ME","regime":"simples","condicao_pagamento":[0],"contato":"vendas@exemplo.invalid"}
   ],
   "insumos": [
-    {"sku":"MP9001","nome":"Chapa Espelho 3mm 3,21x2,40 (exemplo)","unidade_compra":"un","unidade_consumo":"m2","fator_conversao":7.704,"ncm":"7009.91.00","minimo":30.8,"custo_referencia":29.1837,"fornecedor_padrao_cnpj":"11222333000181","lead_time_dias":7},
+    {"sku":"MP9001","nome":"Chapa Espelho 3mm 3,21x2,40 (exemplo)","unidade_compra":"un","unidade_consumo":"m2","fator_conversao":7.704,"ncm":"7009.91.00","minimo":30.8,"custo_referencia":31.0981,"fornecedor_padrao_cnpj":"11222333000181","lead_time_dias":7},
     {"sku":"MP9002","nome":"Montana Rockl Preto rolo 1,40x50m (exemplo)","unidade_compra":"rl","unidade_consumo":"m","fator_conversao":50,"ncm":"5903.20.00","minimo":25,"custo_referencia":26.3538,"fornecedor_padrao_cnpj":"12345678000195","lead_time_dias":12},
     {"sku":"MP9003","nome":"Disco MDF 370x370x8 (exemplo)","unidade_compra":"un","unidade_consumo":"un","fator_conversao":1,"minimo":150,"custo_referencia":0.5209},
     {"sku":"MP9004","nome":"Caixa Embalagem Espelho 40cm fardo 25 (exemplo)","unidade_compra":"un","unidade_consumo":"un","fator_conversao":25,"ncm":"4819.10.00","minimo":60,"custo_referencia":3.3891,"fornecedor_padrao_cnpj":"98765432000198"},

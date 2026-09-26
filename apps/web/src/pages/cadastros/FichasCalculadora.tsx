@@ -1,6 +1,6 @@
 import { AlertTriangle } from 'lucide-react'
 import { useState } from 'react'
-import { num } from '../../domain/format'
+import { lerNumeroBR, num } from '../../domain/format'
 import { Button, Field, Input, Modal, cx } from '../../ui'
 
 const r4 = (v: number) => Math.round(v * 10000) / 10000
@@ -14,11 +14,15 @@ export default function FichasCalculadora({ unidade, onClose, onApply }: { unida
   const [larg, setLarg] = useState('40')
   const [alt, setAlt] = useState('40')
   const [pecas, setPecas] = useState('1')
-  const [rolo, setRolo] = useState('1.4')
+  const [rolo, setRolo] = useState('1,4')
   const [comp, setComp] = useState('100')
   const [peso, setPeso] = useState('10')
   const [un, setUn] = useState('1')
-  const n = (s: string) => Number(String(s).replace(',', '.')) || 0
+  // Campo de texto com teclado decimal: o operador digita com vírgula (type=number engolia a vírgula).
+  const n = (s: string) => {
+    const v = lerNumeroBR(s)
+    return Number.isFinite(v) ? v : 0
+  }
 
   const area = (n(larg) / 100) * (n(alt) / 100) * n(pecas)
   let resultado = 0
@@ -85,35 +89,35 @@ export default function FichasCalculadora({ unidade, onClose, onApply }: { unida
         {(tipo === 'area' || tipo === 'rolo') && (
           <>
             <Field label="Largura (cm)">
-              <Input type="number" inputMode="decimal" value={larg} onChange={(e) => setLarg(e.target.value)} />
+              <Input inputMode="decimal" value={larg} onChange={(e) => setLarg(e.target.value)} />
             </Field>
             <Field label="Altura (cm)">
-              <Input type="number" inputMode="decimal" value={alt} onChange={(e) => setAlt(e.target.value)} />
+              <Input inputMode="decimal" value={alt} onChange={(e) => setAlt(e.target.value)} />
             </Field>
           </>
         )}
         {tipo === 'rolo' && (
           <Field label="Largura do rolo (m)">
-            <Input type="number" inputMode="decimal" step="0.01" value={rolo} onChange={(e) => setRolo(e.target.value)} />
+            <Input inputMode="decimal" value={rolo} onChange={(e) => setRolo(e.target.value)} />
           </Field>
         )}
         {tipo === 'comprimento' && (
           <Field label="Comprimento (cm)">
-            <Input type="number" inputMode="decimal" value={comp} onChange={(e) => setComp(e.target.value)} />
+            <Input inputMode="decimal" value={comp} onChange={(e) => setComp(e.target.value)} />
           </Field>
         )}
         {tipo === 'peso' && (
           <Field label="Peso por peça (g)">
-            <Input type="number" inputMode="decimal" value={peso} onChange={(e) => setPeso(e.target.value)} />
+            <Input inputMode="decimal" value={peso} onChange={(e) => setPeso(e.target.value)} />
           </Field>
         )}
         {tipo === 'unidade' && (
           <Field label="Quantidade por peça">
-            <Input type="number" inputMode="decimal" value={un} onChange={(e) => setUn(e.target.value)} />
+            <Input inputMode="decimal" value={un} onChange={(e) => setUn(e.target.value)} />
           </Field>
         )}
         <Field label="Peças por produto">
-          <Input type="number" inputMode="numeric" value={pecas} onChange={(e) => setPecas(e.target.value)} />
+          <Input inputMode="numeric" value={pecas} onChange={(e) => setPecas(e.target.value)} />
         </Field>
       </div>
       <div className="mt-4 rounded-lg bg-surface-2 px-3 py-2.5">

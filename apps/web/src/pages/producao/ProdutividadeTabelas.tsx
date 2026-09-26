@@ -73,7 +73,7 @@ export function TabelaSkus({ linhas }: { linhas: LinhaSku[] }) {
                 return (
                   <tr key={l.productId}>
                     <Td>
-                      <div className="whitespace-nowrap">
+                      <div className="min-w-[160px]">
                         <span className={cx(ref.removido && 'text-muted italic')}>{ref.nome}</span>
                         {ref.cor && <span className="uppercase text-accent-text"> · {ref.cor}</span>}
                       </div>

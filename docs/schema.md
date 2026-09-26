@@ -31,7 +31,7 @@ Regras transversais que toda migration segue (vêm da revisão de segurança; os
 
 **bom_lines** — id, tenant_id, bom_version_id → bom_versions, ordem int, tipo text `insumo|produto`, material_id → materials (quando insumo), component_product_id → products (quando produto), consumo numeric(14,6) check > 0, unidade text, perda_pct numeric(8,5) default 0, calc jsonb (parâmetros da calculadora por partes). `check ((tipo='insumo' and material_id is not null) or (tipo='produto' and component_product_id is not null))`.
 
-**label_profiles** — tenant_id, familia text, prefixo text check `^[A-Z]{2,3}$`, tipos text[] (`produto|montagem|caixa`, `produto` obrigatório), unidades_por_caixa int default 1, instrucao_montagem text. `primary key (tenant_id, familia)`.
+**label_profiles** — tenant_id, familia text, prefixo text check `^[A-Z]{2,3}$`, tipos text[] (`produto|montagem|caixa`, `produto` obrigatório), unidades_por_caixa int default 1, instrucao_montagem text, label_size_id uuid (20260926000700; nulo = tamanho padrão). `primary key (tenant_id, familia)`.
 
 RPC: `activate_bom(p_tenant_id, p_product_id, p_linhas jsonb)` cria nova versão (versao = max+1), valida ciclo e unidade, desativa a anterior, devolve o id. Papéis: admin, producao, compras.
 
@@ -134,6 +134,29 @@ RPC: `import_catalog(p_tenant_id, p_payload jsonb, p_dry_run boolean default tru
 `limpar_exemplo.sql` (fonte em `supabase/limpar_exemplo.sql`, copiado para `dist/` pelo `build.sh`) apaga tudo do tenant `eddias` e agora para, sem apagar nada, quando acha sinal de uso real (conector ligado, pedido fora de `seed:%`, OC/NF-e/recibo/inventário fora dos ids do seed, etiqueta, bipe, movimento de estoque fora do seed, produto/insumo/fornecedor fora dos ids `a0…`/`b0…`/`c0…` do seed — rodar o script depois de importar do ES apagaria o catálogo importado). Para apagar mesmo assim: `set prodio.limpar_mesmo_assim = 'sim';` na mesma execução.
 
 `limpar_so_exemplo.sql` (fonte em `supabase/limpar_so_exemplo.sql`, também copiado pelo `build.sh`) é a limpeza seletiva para quem já tem uso real: apaga só o exemplo (ids fixos do seed) e o que foi criado em cima dele, mantém conectores, credenciais, De-Para, `sync_state` e pedidos reais, e deixa nulo o `product_id` dos itens de pedido real que apontavam para produto do exemplo (a importação religa). Trava própria para dado fora do exemplo ligado ao exemplo (inclusive De-Para de SKU feito na tela num produto do exemplo), com o mesmo `prodio.limpar_mesmo_assim`. Regras completas em `docs/deploy.md`.
+
+## 20260926000500 · demanda pelos pedidos
+
+Liga os pedidos gravados pelo robô à Linha de hoje, à Necessidade de compra e ao Painel (`docs/melhorias.md` itens 13, 15b, 16 e 17). Nenhuma tabela nova.
+
+- **tenants**: `dias_demanda int not null default 14` (1 a 90), a janela da média de vendas; `dias_cobertura_acabado int not null default 3` (0 a 60), quantos dias de venda a sugestão da Linha de hoje repõe no hub quando o saldo do acabado é conhecido (`dias_cobertura` continua sendo a cobertura de insumo da compra). Editáveis pelo admin como o resto de `tenants` (Configurações › Produção e Parâmetros da Necessidade).
+- **Regra dos pedidos que contam** (decisão de 25/09): todo pedido confirmado na janela conta, inclusive cancelado e enviado; só `significado = 'ignorar'` fica de fora; sem significado (status fora do De-Para) conta. Vale para `v_demand_by_sku`, `demand_for_projection`, `demand_summary` e `sales_by_day`, e é a mesma do core (`planejamento.ts`: `contaNaDemanda`, `resumirPedidos`). `carteira` continua limitada à janela: sem acompanhar o status depois da confirmação (item 5), pedido antigo ficaria em carteira para sempre.
+- `demand_for_projection(p_tenant_id, p_dias default null)`: `p_dias` nulo = `dias_demanda`; `demanda_dia` passa a ser por **dia de produção** (vendido ÷ dias × 30 ÷ `dias_uteis_mes`, sem margem). Membro do tenant ou service_role.
+- `demand_summary(p_tenant_id, p_dias default null) → jsonb` (SECURITY DEFINER, `assert_member`, qualquer papel): `{dias, desde, gerado_em, ultimo_pedido, pedidos, pedidos_24h, unidades, sem_produto: {linhas, unidades, skus}, skus_sem_produto: [{sku, unidades, pedidos}] (50 maiores), produtos: [{product_id, vendido, carteira, ultimo_pedido}], hub: [{product_id, saldo, capturado_em}]}`. `ultimo_pedido` é a confirmação mais recente de qualquer pedido gravado (diz até onde o robô leu); `hub` é o snapshot mais recente por produto, só de conector ligado. Um jsonb só: o teto de 1.000 linhas do PostgREST não corta o resumo (provado no `db:test:api`, parte d).
+- `sales_by_day(p_tenant_id, p_dias default 14) → table (dia date, pedidos int, unidades numeric)`: dias de calendário no fuso do tenant, até hoje, dia sem pedido = 0 (1 a 366 dias). É o gráfico "Vendas · 14 dias" do Painel.
+- Índice `order_items_order_id_idx (order_id)`: o `delete … where order_id` de `worker_upsert_orders` (filtra só por order_id; um índice começando por tenant_id não servia e cada pedido gravado lia a tabela inteira), o join de `demand_summary` e o cascade da FK.
+- Testes: `0019_demanda` (regra, janela, limites, hub, papéis, tenant B, e o diagnóstico `supabase/diagnostico/demanda.sql` rodando inteiro numa transação só leitura), `0008_integracoes` (ajustado à regra nova) e a parte (d) do `db:test:api` (a camada de dados da web contra o PostgREST).
+
+## 20260926000700 · tamanhos de etiqueta
+
+Cada empresa cadastra os tamanhos das etiquetas dela (antes eram três fixos na tela). Detalhes da tela e do desenho em `docs/personalizacao.md`.
+
+- **label_sizes** — id, tenant_id, nome (1 a 40, único por empresa sem diferença de maiúscula: índice `label_sizes_nome_uk`), largura_mm (10 a 220, atravessa o rolo) e altura_mm (10 a 300, no sentido do avanço) numeric(6,2), margem_mm numeric(4,2) default 2 (0 a 10, sobrando ≥ 8 mm), dpi int default 203 (`203|300|600`), orientacao text default `normal` (`normal|girada`: conteúdo a 90°), colunas int default 1 (1 a 4, etiquetas lado a lado no rolo), espaco_colunas_mm numeric(4,2) default 0 (0 a 20; rolo inteiro ≤ 220 mm), padrao boolean (no máximo um por empresa: índice parcial `label_sizes_padrao_uk`), preset text (`50x30|60x40|100x50` quando nasceu de fábrica), created_at, updated_at. `unique (tenant_id, id)`. RLS de leitura para todo papel do tenant; sem GRANT de escrita (só RPC). Auditada.
+- Os três tamanhos de fábrica (50 × 30, **60 × 40 padrão**, 100 × 50; margem 2 mm, 203 dpi) entram em toda empresa sem tamanho: as existentes na própria migration, as novas pelo gatilho `tenants_default_label_sizes` (função interna `seed_label_sizes`).
+- **label_profiles.label_size_id** uuid nulo, FK composta `(tenant_id, label_size_id) → label_sizes(tenant_id, id) on delete set null (label_size_id)`. Nulo = o padrão da empresa (os perfis que já existiam ficam assim). Escrita direta como o resto do perfil (admin, compras, produção).
+- `save_label_size(p_tenant_id, p_tamanho jsonb) → uuid` (admin): sem `id` cria; com `id` altera o da empresa (outro: "tamanho não encontrado"). Mensagens iguais às do core (`validarTamanho`). Marcar `padrao` tira o padrão do anterior; desmarcar o único padrão é recusado; o primeiro tamanho de uma empresa vazia vira padrão. Nome repetido: `23505` "Já existe um tamanho chamado …". Um admin por vez por empresa (`pg_advisory_xact_lock`).
+- `delete_label_size(p_tenant_id, p_id)` (admin): recusa o padrão; os perfis que usavam o tamanho voltam ao padrão.
+- Testes: `0022_etiquetas_tamanhos` (fábrica, validação, padrão, perfil, exclusão, papéis, isolamento, privilégios) e a parte (e) do `db:test:api`.
 
 ## Views para a interface
 

@@ -1,11 +1,12 @@
 // Escritas de sistema e comercial: avisos, conectores, outbox, membros, aparelhos, operadores,
 // empresa, canais e preços. RPCs conforme docs/schema.md (0001, 0002, 0008, 0009).
-import type { Channel, Connector, Device, Member, Tenant } from '../domain/types'
+import type { Channel, Connector, Device, LabelSize, Member, Tenant } from '../domain/types'
 import { checar } from './erros'
 import { carregarFatias } from './fatias'
 import { channelParaBanco, connectorConfigParaBanco, perfilParaBanco, tenantParaBanco } from './mapeadores'
 import { ehUuid, type OperadorInput, type Patch } from './repo'
 import { rpc, type Ctx } from './supabaseCtx'
+import { tamanhoParaBanco } from './tamanhosEtiqueta'
 
 export async function markNotification(ctx: Ctx, id: string): Promise<Patch> {
   checar(await ctx.sb.from('notifications').update({ lida: true }).eq('id', id).eq('tenant_id', ctx.tenantId()))
@@ -87,4 +88,17 @@ export async function removeChannel(ctx: Ctx, id: string): Promise<Patch> {
 export async function setPrecoVenda(ctx: Ctx, productId: string, channelId: string, preco: number | undefined): Promise<Patch> {
   await rpc(ctx, 'set_product_price', { p_tenant_id: ctx.tenantId(), p_product_id: productId, p_channel_id: channelId, p_preco: preco ?? null })
   return carregarFatias(ctx, ['products'])
+}
+
+/** Tamanho de etiqueta pela RPC save_label_size (admin); relê os tamanhos. */
+export async function saveLabelSize(ctx: Ctx, t: LabelSize): Promise<Patch> {
+  await rpc(ctx, 'save_label_size', { p_tenant_id: ctx.tenantId(), p_tamanho: tamanhoParaBanco(t) })
+  return carregarFatias(ctx, ['labelSizes'])
+}
+
+/** Apaga pela RPC delete_label_size; os perfis que usavam o tamanho voltam ao padrão, então os perfis (tenant) são relidos. */
+export async function removeLabelSize(ctx: Ctx, id: string): Promise<Patch> {
+  if (!ehUuid(id)) throw new Error('Tamanho ainda não gravado.')
+  await rpc(ctx, 'delete_label_size', { p_tenant_id: ctx.tenantId(), p_id: id })
+  return carregarFatias(ctx, ['labelSizes', 'tenant'])
 }

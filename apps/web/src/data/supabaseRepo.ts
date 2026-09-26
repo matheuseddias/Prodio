@@ -2,7 +2,7 @@
 // Módulos por assunto: leituras.ts, fatias.ts, escritasProducao.ts, escritasCadastros.ts, escritasSistema.ts.
 import type { PayloadImportacao, ResultadoImportacao } from '@prodio/core/importacaoEs'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { Bom, Channel, Connector, Device, Label, Material, Member, NfeInbound, Product, PurchaseOrder, StockMove, Supplier, Tenant } from '../domain/types'
+import type { Bom, Channel, Connector, DailyPlanLine, Device, Label, LabelSize, Material, Member, NfeInbound, Product, PurchaseOrder, StockMove, Supplier, Tenant } from '../domain/types'
 import * as C from './escritasCadastros'
 import * as P from './escritasProducao'
 import * as S from './escritasSistema'
@@ -52,6 +52,9 @@ export class SupabaseRepo implements Repo {
   }
   setProjetado(productId: string, projetado: number): Promise<Patch> {
     return P.setProjetado(this.ctx, productId, projetado)
+  }
+  adicionarAoPlano(linhas: DailyPlanLine[]): Promise<Patch> {
+    return P.adicionarAoPlano(this.ctx, linhas)
   }
   printLabels(productId: string, qtd: number, tipo: 'unidade' | 'caixa'): Promise<Retorno<Label[]>> {
     return P.printLabels(this.ctx, productId, qtd, tipo)
@@ -117,6 +120,12 @@ export class SupabaseRepo implements Repo {
   }
   setTenant(t: Tenant): Promise<Patch> {
     return S.setTenant(this.ctx, t)
+  }
+  saveLabelSize(t: LabelSize): Promise<Patch> {
+    return S.saveLabelSize(this.ctx, t)
+  }
+  removeLabelSize(id: string): Promise<Patch> {
+    return S.removeLabelSize(this.ctx, id)
   }
   upsertChannel(c: Channel): Promise<Patch> {
     return S.upsertChannel(this.ctx, c)

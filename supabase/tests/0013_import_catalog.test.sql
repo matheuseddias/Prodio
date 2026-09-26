@@ -87,7 +87,7 @@ begin
   select * into v from public.suppliers where tenant_id = t and cnpj = '98765432000198';
   if v.regime <> 'simples' or v.condicao_pagamento <> '{0}' or v.lead_time_dias <> 0 or v.contato <> 'vendas@exemplo.invalid' then raise exception 'fornecedor simples: %', row_to_json(v); end if;
   select m.*, s.cnpj into v from public.materials m left join public.suppliers s on s.id = m.fornecedor_padrao_id where m.tenant_id = t and m.sku = 'MP9001';
-  if v.unidade_compra <> 'un' or v.unidade_consumo <> 'm2' or v.fator_conversao <> 7.704 or v.custo_referencia <> 29.1837 or v.minimo <> 30.8
+  if v.unidade_compra <> 'un' or v.unidade_consumo <> 'm2' or v.fator_conversao <> 7.704 or v.custo_referencia <> 31.0981 or v.minimo <> 30.8
      or v.cnpj <> '11222333000181' or v.lead_time_dias <> 7 or v.ncm <> '7009.91.00' then raise exception 'insumo MP9001: %', row_to_json(v); end if;
   if (select fornecedor_padrao_id from public.materials where tenant_id = t and sku = 'MP9005') is not null then raise exception 'MP9005 sem fornecedor padrão'; end if;
   select * into v from public.products where tenant_id = t and sku = 'ED900001';

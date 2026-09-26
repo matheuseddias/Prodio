@@ -1,5 +1,6 @@
 // Apoio dos testes da importação do ES: o backup sintético (dados inventados, e-mails em .invalid) e atalhos.
 // Nunca use aqui um backup real: o arquivo do fundador não passa pelo repositório.
+import brutoCustos from '../fixtures/backup-es-custos.json?raw'
 import bruto from '../fixtures/backup-es-sintetico.json?raw'
 import { planejarImportacaoES } from '../importacaoEs'
 import type { OpcoesImportacaoES, PlanoImportacaoES } from './tipos'
@@ -13,6 +14,19 @@ export const HOJE = '2026-09-26'
 
 /** Cópia nova do backup sintético (pode mutar à vontade). */
 export const backupSintetico = (): BackupBruto => JSON.parse(bruto) as BackupBruto
+
+/**
+ * Cópia nova do backup sintético de custos: o caso do espelho 60cm (bobina com custo médio legado por unidade de
+ * compra, insumo de custo médio zerado ou negativo, fator 0, insumo sem custo nenhum), no formato do ES.
+ */
+export const backupCustos = (): BackupBruto => JSON.parse(brutoCustos) as BackupBruto
+
+/** Planeja o backup de custos, opcionalmente mutado antes. */
+export function planejarCustos(mutar?: (b: BackupBruto) => void): PlanoImportacaoES {
+  const b = backupCustos()
+  mutar?.(b)
+  return planejarImportacaoES(b, { nomeArquivo: 'backup-suprimentos-20260925-1800.json', hoje: HOJE })
+}
 
 /** Planeja o backup sintético, opcionalmente mutado antes. */
 export function planejar(mutar?: (b: BackupBruto) => void, opcoes: OpcoesImportacaoES = {}): PlanoImportacaoES {

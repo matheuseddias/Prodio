@@ -7,7 +7,7 @@ import { X } from 'lucide-react'
 import { useState } from 'react'
 import { useStore } from '../../domain/store'
 import type { Supplier } from '../../domain/types'
-import { Badge, Button, Field, Input, Modal, Select, cx } from '../../ui'
+import { Badge, Button, CampoNumero, Field, Input, Modal, Select, cx } from '../../ui'
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
@@ -191,7 +191,7 @@ export default function FornecedorModal({ fornecedor, todos, onClose, onSave }: 
                       <span className="text-[12px] text-faint"> · {m.unidadeCompra} → {m.unidadeConsumo}</span>
                     </div>
                     <Input value={v.codigoFornecedor} onChange={(e) => setVinculos((l) => l.map((x) => (x.materialId === v.materialId ? { ...x, codigoFornecedor: e.target.value } : x)))} placeholder="cProd" className="h-9 font-mono" />
-                    <Input type="number" inputMode="decimal" step="0.01" value={v.fator} onChange={(e) => setVinculos((l) => l.map((x) => (x.materialId === v.materialId ? { ...x, fator: Number(e.target.value) } : x)))} className="h-9 text-right tabular-nums" />
+                    <CampoNumero value={v.fator} onChange={(fator) => setVinculos((l) => l.map((x) => (x.materialId === v.materialId ? { ...x, fator } : x)))} min={0} aria-label={`Fator de ${m.sku}`} className="h-9" />
                   </div>
                 )
               })}

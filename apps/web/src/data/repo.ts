@@ -6,9 +6,11 @@ import type {
   Channel,
   Connector,
   DailyPlanLine,
+  DemandaResumo,
   Device,
   Historico,
   Label,
+  LabelSize,
   Location,
   Material,
   Member,
@@ -31,9 +33,16 @@ export interface Snapshot {
   suppliers: Supplier[]
   boms: Bom[]
   dailyPlan: DailyPlanLine[]
+  /**
+   * Demanda dos pedidos na janela do tenant (RPC demand_summary): só agregados. Alimenta a sugestão da
+   * Linha de hoje, a Necessidade de compra e o Painel. `disponivel: false` quando a leitura falhou.
+   */
+  demanda: DemandaResumo
   /** Séries dos gráficos (produção e vendas por dia). Do banco, ou de exemplo no modo memória. */
   historico: Historico
   labels: Label[]
+  /** Tamanhos de etiqueta da empresa (label_sizes). Vazio quando o banco ainda não tem a tabela: as telas usam os de fábrica. */
+  labelSizes: LabelSize[]
   scans: ScanEvent[]
   stockMoves: StockMove[]
   purchaseOrders: PurchaseOrder[]
@@ -96,6 +105,11 @@ export interface Repo {
   registerScan(serial: string, opts: OpcoesBipe): Promise<Retorno<RegistroBipe>>
   reverseScan(scanId: string, opts: { id: string }): Promise<Patch>
   setProjetado(productId: string, projetado: number): Promise<Patch>
+  /**
+   * Põe no plano de hoje as linhas sugeridas pela demanda. Só produto que ainda NÃO está no plano: quem já
+   * está (ajuste da encarregada, feito aqui ou em outro aparelho) nunca é sobrescrito.
+   */
+  adicionarAoPlano(linhas: DailyPlanLine[]): Promise<Patch>
   printLabels(productId: string, qtd: number, tipo: 'unidade' | 'caixa'): Promise<Retorno<Label[]>>
   annulLabel(serial: string): Promise<Patch>
   addStockMove(m: Omit<StockMove, 'id' | 'em'>, opts: { id: string }): Promise<Patch>
@@ -121,6 +135,10 @@ export interface Repo {
   removeDevice(id: string): Promise<Patch>
   upsertOperator(o: OperadorInput): Promise<Patch>
   setTenant(t: Tenant): Promise<Patch>
+  /** Tamanho de etiqueta: cria (id que não é do banco) ou altera. Só admin (RPC save_label_size). */
+  saveLabelSize(t: LabelSize): Promise<Patch>
+  /** Apaga um tamanho que não é o padrão; os perfis que o usavam voltam ao padrão. */
+  removeLabelSize(id: string): Promise<Patch>
 
   upsertChannel(c: Channel): Promise<Patch>
   removeChannel(id: string): Promise<Patch>

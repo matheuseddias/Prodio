@@ -1,11 +1,14 @@
 // Mapeadores de ida e volta entre as linhas do banco (snake_case, docs/schema.md) e os tipos de
 // domínio (@prodio/core/tipos): tenant, cadastros, canais, membros, aparelhos, operadores.
+import { COBERTURA_ACABADO_PADRAO, JANELA_PADRAO_DIAS, janelaDaDemanda } from '@prodio/core/planejamento'
 import type { Channel, Device, LabelProfile, Location, Material, Member, Notification, Operator, Product, Supplier, Tenant } from '../domain/types'
 
 export const num = (v: unknown, padrao = 0): number => {
   const n = typeof v === 'number' ? v : v == null || v === '' ? NaN : Number(v)
   return Number.isFinite(n) ? n : padrao
 }
+/** Cobertura do acabado no hub: inteiro de 0 a 60 (o check de tenants.dias_cobertura_acabado). */
+const coberturaAcabado = (v: number): number => Math.min(60, Math.max(0, Math.round(Number.isFinite(v) ? v : COBERTURA_ACABADO_PADRAO)))
 export const numOpt = (v: unknown): number | undefined => (v == null || v === '' ? undefined : num(v))
 export const strOpt = (v: unknown): string | undefined => (v == null || v === '' ? undefined : String(v))
 /** Fração do banco (0.18) → percentual da interface (18). */
@@ -17,6 +20,8 @@ export const pctParaBanco = (v: number | undefined): number => Math.round(num(v)
 export interface TenantRow {
   id: string
   nome: string
+  /** Lido, nunca gravado pela tela (é o endereço do e-mail de XML). */
+  slug?: string | null
   cnpj: string
   regime: Tenant['regime']
   credita_impostos: boolean
@@ -26,6 +31,9 @@ export interface TenantRow {
   dias_cobertura: number
   margem_alvo_padrao: number | string
   exigir_projecao_para_imprimir: boolean
+  /** Janela da média de vendas e cobertura do acabado (migration 20260926000500_demanda.sql). */
+  dias_demanda?: number | string | null
+  dias_cobertura_acabado?: number | string | null
 }
 export interface LabelProfileRow {
   familia: string
@@ -33,12 +41,15 @@ export interface LabelProfileRow {
   tipos: string[]
   unidades_por_caixa: number
   instrucao_montagem: string | null
+  /** Tamanho de etiqueta (20260926000700). Ausente = banco sem a coluna; nulo = tamanho padrão da empresa. */
+  label_size_id?: string | null
 }
 
 export function tenantDoBanco(r: TenantRow, perfis: LabelProfileRow[]): Tenant {
   return {
     id: r.id,
     nome: r.nome,
+    slug: strOpt(r.slug),
     cnpj: r.cnpj,
     regime: r.regime,
     creditaImpostos: !!r.credita_impostos,
@@ -49,6 +60,10 @@ export function tenantDoBanco(r: TenantRow, perfis: LabelProfileRow[]): Tenant {
     margemAlvoPadrao: num(r.margem_alvo_padrao, 0.2),
     exigirProjecaoParaImprimir: !!r.exigir_projecao_para_imprimir,
     perfisEtiqueta: (Array.isArray(perfis) ? perfis : []).map(perfilDoBanco),
+    // Ausentes quando o banco ainda não tem as colunas (leituras.ts, lerPlanejamentoDoTenant): a tela usa os
+    // padrões e a gravação não as manda.
+    diasDemanda: r.dias_demanda == null ? undefined : janelaDaDemanda(num(r.dias_demanda, JANELA_PADRAO_DIAS)),
+    diasCoberturaAcabado: r.dias_cobertura_acabado == null ? undefined : coberturaAcabado(num(r.dias_cobertura_acabado, COBERTURA_ACABADO_PADRAO)),
   }
 }
 export function perfilDoBanco(r: LabelProfileRow): LabelProfile {
@@ -57,10 +72,11 @@ export function perfilDoBanco(r: LabelProfileRow): LabelProfile {
   const tipos = (Array.isArray(r.tipos) ? r.tipos : []) as LabelProfile['tipos']
   return {
     familia: String(r.familia ?? ''),
-    prefixo: String(r.prefixo ?? 'PR'),
+    prefixo: String(r.prefixo ?? 'ET'),
     tipos: tipos.length ? tipos : ['produto'],
     unidadesPorCaixa: num(r.unidades_por_caixa, 1),
     instrucaoMontagem: strOpt(r.instrucao_montagem),
+    ...(r.label_size_id === undefined ? {} : { tamanhoId: r.label_size_id ?? null }),
   }
 }
 export function tenantParaBanco(t: Tenant): Omit<TenantRow, 'id'> {
@@ -75,10 +91,22 @@ export function tenantParaBanco(t: Tenant): Omit<TenantRow, 'id'> {
     dias_cobertura: t.diasCobertura,
     margem_alvo_padrao: t.margemAlvoPadrao,
     exigir_projecao_para_imprimir: t.exigirProjecaoParaImprimir,
+    // Sem valor no estado, a coluna fica como está (nunca volta para o padrão por engano).
+    ...(t.diasDemanda === undefined ? {} : { dias_demanda: janelaDaDemanda(t.diasDemanda) }),
+    ...(t.diasCoberturaAcabado === undefined ? {} : { dias_cobertura_acabado: coberturaAcabado(t.diasCoberturaAcabado) }),
   }
 }
 export function perfilParaBanco(tenantId: string, p: LabelProfile): LabelProfileRow & { tenant_id: string } {
-  return { tenant_id: tenantId, familia: p.familia, prefixo: p.prefixo, tipos: p.tipos, unidades_por_caixa: p.unidadesPorCaixa, instrucao_montagem: p.instrucaoMontagem ?? null }
+  // Sem tamanhoId no estado (banco sem a coluna), a chave nem vai: o upsert não quebra antes da migration.
+  return {
+    tenant_id: tenantId,
+    familia: p.familia,
+    prefixo: p.prefixo,
+    tipos: p.tipos,
+    unidades_por_caixa: p.unidadesPorCaixa,
+    instrucao_montagem: p.instrucaoMontagem ?? null,
+    ...(p.tamanhoId === undefined ? {} : { label_size_id: p.tamanhoId }),
+  }
 }
 
 // --- Produtos -----------------------------------------------------------------

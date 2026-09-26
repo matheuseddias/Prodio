@@ -95,7 +95,7 @@ export default function OrdemDetalhe() {
           }
         />
 
-        <div className="grid gap-4 lg:grid-cols-[1fr_320px] items-start">
+        <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_320px] items-start">
           <div className="space-y-4">
             <Card title="Itens" actions={<span className="text-[12px] text-muted tabular-nums">{po.itens.length} {po.itens.length === 1 ? 'item' : 'itens'}</span>}>
               <Table>
@@ -172,7 +172,8 @@ export default function OrdemDetalhe() {
             </Card>
           </div>
 
-          <div className="space-y-4">
+          {/* Abaixo de 2xl os três cartões laterais vão para baixo dos itens, lado a lado. */}
+          <div className="grid gap-4 md:grid-cols-3 2xl:grid-cols-1 items-start">
             <Card title="Fornecedor">
               {sup ? (
                 <div className="text-sm space-y-1">

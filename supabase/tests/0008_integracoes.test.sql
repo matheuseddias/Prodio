@@ -125,15 +125,17 @@ begin
   if (select product_id from public.order_items i join public.orders o on o.id = i.order_id where o.external_id = 'o1') <> '30000000-0000-0000-0000-000000000051' then raise exception 'alias ED-PA deveria resolver PA'; end if;
   if (select product_id from public.order_items i join public.orders o on o.id = i.order_id where o.external_id = 'o2') <> '30000000-0000-0000-0000-000000000052' then raise exception 'sku PB deveria resolver'; end if;
   if (select product_id from public.order_items i join public.orders o on o.id = i.order_id where o.external_id = 'o4') is not null then raise exception 'sku desconhecido fica sem produto'; end if;
+  -- Decisão de 25/09 (20260926000500_demanda.sql): todo pedido confirmado conta, inclusive o cancelado (o3, 10 un de PA);
+  -- demanda_dia é por dia de produção (vendido ÷ 14 × 30 ÷ 22 dias úteis do tenant).
   select * into r from public.demand_for_projection(v_t, 14) where sku = 'PA';
-  if r.vendido <> 2 or r.demanda_dia <> round(2.0 / 14, 4) then raise exception 'demanda de PA inesperada: %', r; end if;
+  if r.vendido <> 12 or r.demanda_dia <> round(12.0 / 14 * 30 / 22, 4) then raise exception 'demanda de PA inesperada: %', r; end if;
   select * into r from public.demand_for_projection(v_t, 14) where sku = 'PB';
   if r.vendido <> 3 or r.carteira <> 3 then raise exception 'demanda de PB inesperada: %', r; end if;
-  -- reimportar o1 como enviado substitui itens e sai da demanda
+  -- reimportar o1 como enviado substitui itens e continua na demanda (enviado conta)
   perform public.worker_upsert_orders(v_t, v_c, '[{"external_id":"o1","external_status":"shipped","total":100,"itens":[{"sku_externo":"ED-PA","quantidade":2,"preco":50}]}]');
   if (select count(*) from public.orders where external_id = 'o1') <> 1 or (select count(*) from public.order_items i join public.orders o on o.id = i.order_id where o.external_id = 'o1') <> 1 then raise exception 'reimportação não pode duplicar'; end if;
   if (select confirmed_at from public.orders where external_id = 'o1') is null then raise exception 'confirmed_at ausente deveria ser mantido'; end if;
-  if (select vendido from public.demand_for_projection(v_t, 14) where sku = 'PA') <> 0 then raise exception 'pedido enviado não conta como demanda'; end if;
+  if (select vendido from public.demand_for_projection(v_t, 14) where sku = 'PA') <> 12 then raise exception 'pedido enviado continua contando na demanda'; end if;
 
   -- claim do outbox: agrupa por produto, marca em_processamento, não devolve duas vezes; conector Bling fica intacto
   n := 0;
@@ -217,7 +219,7 @@ do $$
 declare v_t uuid := current_setting('test.tenant_a')::uuid; v_c uuid := current_setting('test.conn')::uuid;
 begin
   if (select vendido_14d from public.v_demand_by_sku where sku = 'PB') <> 3 or (select carteira from public.v_demand_by_sku where sku = 'PB') <> 3 then raise exception 'v_demand_by_sku de PB'; end if;
-  if (select vendido_14d from public.v_demand_by_sku where sku = 'PA') <> 0 then raise exception 'v_demand_by_sku de PA deveria ser 0 (enviado)'; end if;
+  if (select vendido_14d from public.v_demand_by_sku where sku = 'PA') <> 12 then raise exception 'v_demand_by_sku de PA deveria contar enviado e cancelado (12)'; end if;
   if (select count(*) from public.sync_state where connector_id = v_c) <> 1 then raise exception 'admin deveria ler sync_state'; end if;
   -- A interface lê o pulso (last_run_at) e o cursor, mas não escreve: sync_state é do worker.
   if (select last_run_at from public.sync_state where connector_id = v_c) is null then raise exception 'admin deveria ler o pulso'; end if;

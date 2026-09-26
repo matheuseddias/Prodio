@@ -3,6 +3,7 @@
 // Cada ação atualiza o estado de forma otimista (regras de data/local.ts), chama o Repo e
 // aplica o que ele devolve. A API pública de useStore() é a mesma do modo memória.
 import type { PayloadImportacao, ResultadoImportacao } from '@prodio/core/importacaoEs'
+import { demandaVazia } from '@prodio/core/planejamento'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useAuth, type TenantResumo } from '../app/auth'
 import { mensagemErro } from '../data/erros'
@@ -15,7 +16,7 @@ import { SupabaseRepo } from '../data/supabaseRepo'
 import { historicoVazio } from './historico'
 import { produtoRef } from './produtoRef'
 import { useFilaBipes } from './storeBipes'
-import type { Bom, Channel, Connector, Device, Label, Material, Member, NfeInbound, Product, PurchaseOrder, StockMove, Supplier, Tenant } from './types'
+import type { Bom, Channel, Connector, DailyPlanLine, Device, Label, LabelSize, Material, Member, NfeInbound, Product, PurchaseOrder, StockMove, Supplier, Tenant } from './types'
 
 export { custoFicha, explodeBom } from './storeFicha'
 export type { ScanResult }
@@ -25,6 +26,8 @@ interface Actions {
   registerScan: (serial: string, operador: string, dispositivo: string) => ScanResult
   reverseScan: (scanId: string) => void
   setProjetado: (productId: string, projetado: number) => void
+  /** Sugestões da demanda no plano de hoje, só para produto fora do plano. Devolve quantas linhas entraram. */
+  adicionarAoPlano: (linhas: DailyPlanLine[]) => number
   printLabels: (productId: string, qtd: number, tipo?: 'unidade' | 'caixa') => Label[]
   addStockMove: (m: Omit<StockMove, 'id' | 'em'>) => void
   upsertProduct: (p: Product) => void
@@ -41,6 +44,10 @@ interface Actions {
   upsertMember: (m: Member) => void
   upsertDevice: (d: Device) => void
   setTenant: (t: Tenant) => void
+  /** Tamanho de etiqueta (Configurações › Etiquetas). No banco, só admin grava (RPC save_label_size). */
+  saveLabelSize: (t: LabelSize) => void
+  /** Apaga um tamanho que não é o padrão; os perfis que o usavam voltam ao padrão. */
+  removeLabelSize: (id: string) => void
   upsertChannel: (c: Channel) => void
   removeChannel: (id: string) => void
   setPrecoVenda: (productId: string, channelId: string, preco: number | undefined) => void
@@ -85,6 +92,7 @@ function snapshotVazio(): Snapshot {
     ...Object.fromEntries(Object.keys(ex).map((k) => [k, []])),
     tenant: { ...ex.tenant, id: '', nome: '', perfisEtiqueta: [] },
     historico: historicoVazio(),
+    demanda: demandaVazia(false),
   } as unknown as Snapshot
 }
 
@@ -199,6 +207,17 @@ export function StoreProvider({ children, repo: repoProp }: { children: ReactNod
     executar((a) => local.reverseScan(a, scanId, id), () => repo.reverseScan(scanId, { id }))
   }, [executar, repo])
   const setProjetado = useCallback<Actions['setProjetado']>((productId, projetado) => executar((a) => local.setProjetado(a, productId, projetado), () => repo.setProjetado(productId, projetado)), [executar, repo])
+  // As linhas novas são decididas AGORA, contra o estado de antes: a chamada ao Repo roda depois do commit
+  // otimista, e filtrar lá dentro (com o estado já atualizado) mandaria uma lista vazia.
+  const adicionarAoPlano = useCallback<Actions['adicionarAoPlano']>(
+    (linhas) => {
+      const novas = local.adicionarAoPlano(stateRef.current, linhas).valor
+      if (novas.length === 0) return 0
+      executar((a) => local.adicionarAoPlano(a, novas), () => repo.adicionarAoPlano(novas))
+      return novas.length
+    },
+    [executar, repo],
+  )
   const printLabels = useCallback<Actions['printLabels']>((productId, qtd, tipo = 'unidade') => executar((a) => local.printLabels(a, productId, qtd, tipo), () => repo.printLabels(productId, qtd, tipo)), [executar, repo])
   const annulLabel = useCallback<Actions['annulLabel']>((serial) => executar((a) => local.annulLabel(a, serial), () => repo.annulLabel(serial)), [executar, repo])
   const addStockMove = useCallback<Actions['addStockMove']>((m) => {
@@ -237,7 +256,16 @@ export function StoreProvider({ children, repo: repoProp }: { children: ReactNod
   const upsertDevice = useCallback<Actions['upsertDevice']>((d) => executar((a) => ({ ...a, devices: local.upsertLista(a.devices, d) }), () => repo.upsertDevice(d)), [executar, repo])
   const removeDevice = useCallback<Actions['removeDevice']>((id) => executar((a) => local.removeDevice(a, id), () => repo.removeDevice(id)), [executar, repo])
   const upsertOperator = useCallback<Actions['upsertOperator']>((o) => executar((a) => local.upsertOperator(a, o, `op-${novoId()}`), () => repo.upsertOperator(o)), [executar, repo])
-  const setTenant = useCallback<Actions['setTenant']>((t) => executar((a) => ({ ...a, tenant: t }), () => repo.setTenant(t)), [executar, repo])
+  // Janela da média de vendas mudou: a demanda é relida na janela nova depois de gravar.
+  const setTenant = useCallback<Actions['setTenant']>((t) => {
+    const mudouJanela = (t.diasDemanda ?? 14) !== (stateRef.current.tenant.diasDemanda ?? 14)
+    executar((a) => ({ ...a, tenant: t }), async () => {
+      const patch = await repo.setTenant(t)
+      return mudouJanela && !('demanda' in patch) ? { ...patch, ...(await repo.recarregar(['demanda'])) } : patch
+    })
+  }, [executar, repo])
+  const saveLabelSize = useCallback<Actions['saveLabelSize']>((t) => executar((a) => local.saveLabelSize(a, t), () => repo.saveLabelSize(t)), [executar, repo])
+  const removeLabelSize = useCallback<Actions['removeLabelSize']>((id) => executar((a) => local.removeLabelSize(a, id), () => repo.removeLabelSize(id)), [executar, repo])
   const upsertChannel = useCallback<Actions['upsertChannel']>((c) => executar((a) => local.upsertChannel(a, c), () => repo.upsertChannel(c)), [executar, repo])
   const removeChannel = useCallback<Actions['removeChannel']>((id) => executar((a) => local.removeChannel(a, id), () => repo.removeChannel(id)), [executar, repo])
   const setPrecoVenda = useCallback<Actions['setPrecoVenda']>((productId, channelId, preco) => executar((a) => local.setPrecoVenda(a, productId, channelId, preco), () => repo.setPrecoVenda(productId, channelId, preco)), [executar, repo])
@@ -284,14 +312,14 @@ export function StoreProvider({ children, repo: repoProp }: { children: ReactNod
   const value = useMemo(
     () => ({
       ...s,
-      registerScan, reverseScan, setProjetado, printLabels, addStockMove, upsertProduct, upsertMaterial, upsertSupplier, saveBom,
+      registerScan, reverseScan, setProjetado, adicionarAoPlano, printLabels, addStockMove, upsertProduct, upsertMaterial, upsertSupplier, saveBom,
       createPurchaseOrder, updatePurchaseOrder, receiveNfe, updateNfe, markNotification, setConnector, retryOutbox, upsertMember,
-      upsertDevice, setTenant, upsertChannel, removeChannel, setPrecoVenda, annulLabel, addNfe, removeMember, removeDevice, upsertOperator,
+      upsertDevice, setTenant, saveLabelSize, removeLabelSize, upsertChannel, removeChannel, setPrecoVenda, annulLabel, addNfe, removeMember, removeDevice, upsertOperator,
       simularImportacao, gravarImportacao,
       modo, loading, erro, erroAcao, limparErro, recarregar: carregar, recarregarFatias, tenants: auth.tenants,
       pendentesBipes: bipes.pendentes, sincronizarBipes: bipes.drenar,
     }),
-    [s, registerScan, reverseScan, setProjetado, printLabels, addStockMove, upsertProduct, upsertMaterial, upsertSupplier, saveBom, createPurchaseOrder, updatePurchaseOrder, receiveNfe, updateNfe, markNotification, setConnector, retryOutbox, upsertMember, upsertDevice, setTenant, upsertChannel, removeChannel, setPrecoVenda, annulLabel, addNfe, removeMember, removeDevice, upsertOperator, simularImportacao, gravarImportacao, modo, loading, erro, erroAcao, limparErro, carregar, recarregarFatias, auth.tenants, bipes.pendentes, bipes.drenar],
+    [s, registerScan, reverseScan, setProjetado, adicionarAoPlano, printLabels, addStockMove, upsertProduct, upsertMaterial, upsertSupplier, saveBom, createPurchaseOrder, updatePurchaseOrder, receiveNfe, updateNfe, markNotification, setConnector, retryOutbox, upsertMember, upsertDevice, setTenant, saveLabelSize, removeLabelSize, upsertChannel, removeChannel, setPrecoVenda, annulLabel, addNfe, removeMember, removeDevice, upsertOperator, simularImportacao, gravarImportacao, modo, loading, erro, erroAcao, limparErro, carregar, recarregarFatias, auth.tenants, bipes.pendentes, bipes.drenar],
   )
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>

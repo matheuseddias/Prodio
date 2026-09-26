@@ -94,7 +94,7 @@ export default function Fornecedores() {
         }
       />
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_340px] items-start">
+      <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_340px] items-start">
         <Card padded={false}>
           <div className="p-4 border-b border-border">
             <SearchInput value={busca} onChange={setBusca} placeholder="Nome, CNPJ ou contato…" className="sm:w-80" />
@@ -125,12 +125,12 @@ export default function Fornecedores() {
                           {s.nome}
                         </button>
                       </Td>
-                      <Td mono className="text-muted">{cnpjFmt(s.cnpj)}</Td>
+                      <Td mono className="text-muted whitespace-nowrap">{cnpjFmt(s.cnpj)}</Td>
                       <Td>
                         <Badge tone={s.regime === 'simples' ? 'info' : 'neutral'}>{s.regime === 'simples' ? 'Simples' : 'Normal'}</Badge>
                       </Td>
-                      <Td right>{s.leadTimeDias} d</Td>
-                      <Td className="tabular-nums">{condFmt(s.condicaoPagamento)}</Td>
+                      <Td right className="whitespace-nowrap">{s.leadTimeDias} d</Td>
+                      <Td className="tabular-nums whitespace-nowrap">{condFmt(s.condicaoPagamento)}</Td>
                       <Td className="text-muted">{s.contato ?? <span className="text-faint">—</span>}</Td>
                       <Td right>{num(insumosPor.get(s.id) ?? 0)}</Td>
                       <Td right>

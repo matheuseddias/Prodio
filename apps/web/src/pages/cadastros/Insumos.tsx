@@ -10,6 +10,8 @@ import ImportarPlanilha, { type CampoImport, type LinhaImport } from './Importar
 import { parseNumBR } from './numeros'
 
 const uid = () => Math.random().toString(36).slice(2, 10)
+// Custo por unidade de consumo: abaixo de R$ 1 com até 4 casas (R$ 0,0582/g, R$ 0,10/un), senão o grama vira "R$ 0,00".
+const custoUn = (v: number) => (v > 0 && v < 1 ? `R$ ${num(v, 4).replace(/0{1,2}$/, '')}` : brl(v))
 
 const camposImport: CampoImport[] = [
   { key: 'sku', label: 'SKU', obrigatorio: true, aliases: ['codigo', 'código', 'cod'], exemplo: ['MP0078', 'MP0040'] },
@@ -180,6 +182,7 @@ export default function Insumos() {
   const semFornecedor = materials.filter((m) => !m.fornecedorPadraoId)
   const abaixo = materials.filter((m) => m.saldo < m.minimo)
   const valorEstoque = materials.reduce((a, m) => a + m.saldo * m.custoMedio, 0)
+  const semCusto = materials.filter((m) => !(m.custoMedio > 0))
 
   const onImport = (rows: LinhaImport[]) => {
     for (const r of rows) {
@@ -228,7 +231,7 @@ export default function Insumos() {
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-        <Stat label="Cadastrados" value={materials.length} />
+        <Stat label="Cadastrados" value={materials.length} hint={semCusto.length ? `${semCusto.length} sem custo` : undefined} />
         <Stat label="Sem fornecedor padrão" value={semFornecedor.length} tone={semFornecedor.length > 0 ? 'warn' : 'ok'} hint="OC automática precisa de um" />
         <Stat label="Abaixo do mínimo" value={abaixo.length} tone={abaixo.length > 0 ? 'danger' : 'ok'} hint={abaixo.slice(0, 2).map((m) => m.sku).join(', ')} />
         <Stat label="Valor em estoque" value={brl(valorEstoque)} hint="saldo × custo médio" />
@@ -264,7 +267,7 @@ export default function Insumos() {
                   <Th>NCM</Th>
                   <Th right>Mínimo</Th>
                   <Th right>Saldo</Th>
-                  <Th right>Custo médio</Th>
+                  <Th right>Custo / consumo</Th>
                   <Th>Fornecedor padrão</Th>
                   <Th right>Lead time</Th>
                   <Th right></Th>
@@ -299,7 +302,16 @@ export default function Insumos() {
                           </span>
                         )}
                       </Td>
-                      <Td right>{brl(m.custoMedio)}</Td>
+                      <Td right>
+                        {m.custoMedio > 0 ? (
+                          <span title="Custo médio do estoque; sem entrada de NF-e, o custo de referência (importado do ES ou digitado)">
+                            {custoUn(m.custoMedio)}
+                            <span className="text-muted">/{m.unidadeConsumo}</span>
+                          </span>
+                        ) : (
+                          <Badge tone="warn">sem custo</Badge>
+                        )}
+                      </Td>
                       <Td>{sup ? sup.nome : <Badge tone="warn">sem padrão</Badge>}</Td>
                       <Td right className="text-muted">{m.leadTimeDias} d</Td>
                       <Td right>

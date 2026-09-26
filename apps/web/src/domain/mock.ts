@@ -6,6 +6,7 @@ import type {
   Device,
   Historico,
   Label,
+  LabelSize,
   Location,
   Material,
   Member,
@@ -21,6 +22,7 @@ import type {
   Tenant,
   Unit,
 } from './types'
+import { presetsComId } from '@prodio/core/etiquetaTamanhos'
 import { CAPACIDADES } from '../data/mapeadoresConectores'
 import { dataHoraBR, diaISO as diaLocal, diaProducao } from './format'
 
@@ -47,6 +49,7 @@ const diaCompacto = diaISO.replace(/-/g, '').slice(2)
 export const tenant: Tenant = {
   id: 't1',
   nome: 'Eddias Home',
+  slug: 'eddias',
   cnpj: '44664451000107',
   regime: 'real',
   creditaImpostos: false,
@@ -59,10 +62,16 @@ export const tenant: Tenant = {
   perfisEtiqueta: [
     { familia: 'Espelho', prefixo: 'EH', tipos: ['produto', 'montagem'], unidadesPorCaixa: 6, instrucaoMontagem: 'Fixar alça a 118 mm da borda · conferir lapidação' },
     { familia: 'Mousepad', prefixo: 'ED', tipos: ['produto'], unidadesPorCaixa: 20 },
-    { familia: 'Bandeja', prefixo: 'EH', tipos: ['produto', 'caixa'], unidadesPorCaixa: 4 },
+    { familia: 'Bandeja', prefixo: 'EH', tipos: ['produto', 'caixa'], unidadesPorCaixa: 4, tamanhoId: 'ts-100x50' },
     { familia: 'Mesa', prefixo: 'ED', tipos: ['produto'], unidadesPorCaixa: 10 },
   ],
 }
+
+// Os três tamanhos de fábrica (como o banco semeia) e um rolo de duas colunas cadastrado pela fábrica.
+export const labelSizes: LabelSize[] = [
+  ...presetsComId().map((t) => ({ ...t, id: `ts-${t.preset}` })),
+  { id: 'ts-rolo2', nome: 'Rolo 2 colunas 40 × 25', larguraMm: 40, alturaMm: 25, margemMm: 1.5, dpi: 203, orientacao: 'normal', colunas: 2, espacoColunasMm: 3, padrao: false },
+]
 
 export const locations: Location[] = [
   { id: 'l1', nome: 'Galpão Vila Galvão', tipo: 'fabrica' },

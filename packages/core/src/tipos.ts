@@ -1,10 +1,13 @@
 // Tipos de domínio do Prodio (interface apenas; dados em memória por enquanto).
+import type { LabelProfile } from './tipos-etiqueta'
 
 export type Id = string
 
 export interface Tenant {
   id: Id
   nome: string
+  /** tenants.slug: o endereço do e-mail de XML (xml@<slug>.<domínio>) que o worker aceita. Só leitura na tela. */
+  slug?: string
   cnpj: string
   regime: 'simples' | 'presumido' | 'real'
   creditaImpostos: boolean
@@ -15,17 +18,11 @@ export interface Tenant {
   margemAlvoPadrao: number // 0.20, usada na precificação
   exigirProjecaoParaImprimir: boolean
   perfisEtiqueta: LabelProfile[]
+  /** Janela da média de vendas em dias corridos (tenants.dias_demanda). Ausente vale 14. */
+  diasDemanda?: number
+  /** Dias de venda que a sugestão da Linha de hoje repõe no hub, com o saldo conhecido (tenants.dias_cobertura_acabado). Ausente vale 3. */
+  diasCoberturaAcabado?: number
 }
-
-// Perfil de etiqueta por família: quais etiquetas saem para cada peça.
-export interface LabelProfile {
-  familia: string
-  prefixo: string
-  tipos: LabelKind[] // etiquetas geradas por peça
-  unidadesPorCaixa: number
-  instrucaoMontagem?: string // texto da etiqueta de processo, quando existir
-}
-export type LabelKind = 'produto' | 'montagem' | 'caixa'
 
 // Canal de venda configurável pelo cliente (precificação).
 export interface FaixaFrete {
@@ -373,5 +370,9 @@ export interface BomCalc {
 
 // Tipos da NF-e parseada ficam em arquivo próprio (limite de 400 linhas); continuam expostos por aqui.
 export * from './tipos-nfe'
+// Demanda vinda dos pedidos (planejamento.ts).
+export * from './tipos-demanda'
+// Perfis e tamanhos de etiqueta (etiquetas.ts, etiquetaTamanhos.ts, etiquetaLayout.ts).
+export * from './tipos-etiqueta'
 
 export type Regime = Tenant['regime']

@@ -2,6 +2,7 @@
 // "Baixar backup completo" num plano (prévia local + payload de cadastro para a RPC import_catalog).
 // Roda no navegador: o arquivo nunca sai dele; só o payload montado campo a campo vai ao banco.
 // Importe por caminho (import { planejarImportacaoES } from '@prodio/core/importacaoEs') ou pelo barril.
+import { conferirCustosFichas } from './importacaoEs/conferenciaCustos'
 import { planejarDepara } from './importacaoEs/depara'
 import { planejarFichas } from './importacaoEs/fichas'
 import { planejarFornecedores } from './importacaoEs/fornecedores'
@@ -77,6 +78,12 @@ export function planejarBackupES(bk: BackupES | undefined, opcoes: OpcoesImporta
   const prod = validarProdutos(bk, reg)
   const dp = planejarDepara(bk, prod.validos, prefixo, reg)
   const fichas = planejarFichas(bk, dp, ins, prod.comProblema, reg)
+  const cmvPorSku = new Map<string, number>()
+  for (const g of dp.grupos) {
+    const cmv = prod.validos.get(g.dono)?.cmv
+    if (cmv !== undefined && cmv > 0 && cmv < 1e9) cmvPorSku.set(g.principal, cmv)
+  }
+  conferirCustosFichas(fichas.itens, ins, cmvPorSku, reg)
   const produtos = montarProdutos(bk, dp, prod.validos, fichas, reg)
   const vinc = planejarVinculos(bk, forn, ins, reg)
   for (const g of dp.grupos) reg.nomear('ficha', g.principal, prod.validos.get(g.dono)?.nome ?? g.principal)

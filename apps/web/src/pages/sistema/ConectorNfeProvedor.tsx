@@ -33,7 +33,7 @@ const PROVEDORES: { id: string; nome: string; modo: string; desc: string; icone:
 
 export function ConectorNfeProvedor() {
   const { tenant } = useStore()
-  const email = emailXml(tenant.nome)
+  const email = emailXml(tenant)
   const [copiado, setCopiado] = useState(false)
 
   const copiar = async () => {

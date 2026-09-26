@@ -80,6 +80,14 @@ describe('necessidadeDeCompra · por_saldo', () => {
     expect(chapa.atrasado).toBe(true)
     expect(chapa.comprarAte).toBe('2026-09-21')
   })
+  it('coberturaMaisLead: o alvo cobre o lead time do insumo além da cobertura (tela "Por saldo")', () => {
+    const r = necessidadeDeCompra({ ...base, modo: 'por_saldo', ocs, parametros: { diasCobertura: 15, diasSeguranca: 15, coberturaMaisLead: true } })
+    const chapa = r.linhas.find((l) => l.materialId === 'MP0078')!
+    // lead aprendido 12 d: consumo/dia 43,218 × 1,1 × (12 + 15) − saldo 100 − trânsito 150
+    expect(chapa.necessidade).toBeCloseTo(43.218 * 1.1 * 27 - 250, 0)
+    const sem = necessidadeDeCompra({ ...base, modo: 'por_saldo', ocs, parametros: { diasCobertura: 15, diasSeguranca: 15 } }).linhas.find((l) => l.materialId === 'MP0078')!
+    expect(sem.necessidade).toBeCloseTo(43.218 * 1.1 * 15 - 250, 0)
+  })
   it('saldo cobre tudo: necessidade zero, comprar até no futuro; sem consumo: cobertura infinita', () => {
     const r = necessidadeDeCompra({ ...base, modo: 'por_saldo', ocs, saldos: { MP0078: 5000 }, parametros: { diasSeguranca: 3 } })
     const chapa = r.linhas.find((l) => l.materialId === 'MP0078')!

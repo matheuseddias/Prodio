@@ -102,7 +102,7 @@ export default function ImportarESResultado({ plano, simulada, gravada, origemPe
 
       {familias.length > 0 && (
         <Card title="Famílias sem perfil de etiqueta" actions={onPerfis && <Button size="sm" onClick={onPerfis}>Abrir perfis de etiqueta</Button>}>
-          <p className="mb-2 text-[13px] text-muted">Os produtos destas famílias vão sair com a etiqueta padrão até ganharem um perfil próprio (Configurações → Produção).</p>
+          <p className="mb-2 text-[13px] text-muted">Os produtos destas famílias vão sair com a etiqueta padrão (prefixo ET, tamanho padrão) até ganharem um perfil próprio (Configurações → Etiquetas).</p>
           <div className="flex flex-wrap gap-2">
             {familias.map((f) => (
               <Badge key={f.familia} tone="warn">

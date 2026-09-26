@@ -34,7 +34,7 @@ afirmação sobre campo de API passou por um segundo verificador tentando derrub
   EAN com 13 dígitos. Nenhum documenta simbologia: Code 128 funciona em leitor laser, 2D e câmera;
   QR só em 2D e câmera. **Teste físico obrigatório.**
 
-## Defeito achado no worker
+## Defeito achado no worker (corrigido em 26/09)
 
 `apps/worker/src/conectores/baselinker.ts` lê `date_status_change`, que não existe no `getOrders`. O
 campo certo é `date_in_status` (desde quando o pedido está no status atual).

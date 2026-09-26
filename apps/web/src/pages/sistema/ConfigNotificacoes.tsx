@@ -96,7 +96,7 @@ export default function ConfigNotificacoes() {
                   <tr key={ev.id} className="border-t border-border/70">
                     <td className="py-3 pr-3">{ev.label}</td>
                     <td className="py-3 text-center">
-                      <Toggle checked={!!preferencia(ev.id).email} onChange={(v) => setEvento(ev.id, { email: v })} />
+                      <Toggle checked={!!preferencia(ev.id).email} onChange={(v) => setEvento(ev.id, { email: v })} ariaLabel={`E-mail: ${ev.label}`} />
                     </td>
                     <td className="py-3 pr-3">
                       <Select value={preferencia(ev.id).chat ?? ''} onChange={(e) => setEvento(ev.id, { chat: e.target.value || undefined })} className="h-9 max-w-[200px]">
@@ -109,9 +109,7 @@ export default function ConfigNotificacoes() {
                       </Select>
                     </td>
                     <td className="py-3 text-center">
-                      <span className={cx('inline-flex', 'opacity-40 pointer-events-none')}>
-                        <Toggle checked={false} onChange={() => {}} />
-                      </span>
+                      <Toggle checked={false} onChange={() => {}} disabled ariaLabel={`Push: ${ev.label} (em breve)`} />
                     </td>
                   </tr>
                 ))}

@@ -9,12 +9,17 @@ const finito = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null
 }
 
-/** Data aproveitável ou null (string vazia, undefined e "Invalid Date" caem em null). */
+/**
+ * Data aproveitável ou null (string vazia, undefined e "Invalid Date" caem em null).
+ * Só-data ("2026-09-26": comprar até, entrega prevista da OC) é dia do calendário local. `new Date('2026-09-26')`
+ * lê meia-noite UTC, que em Brasília ainda é 25/09 às 21h: a tela mostrava a véspera.
+ */
 const data = (v: unknown): Date | null => {
   if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v
   if (typeof v !== 'string' && typeof v !== 'number') return null
   if (typeof v === 'string' && v.trim() === '') return null
-  const d = new Date(v)
+  const soData = typeof v === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(v.trim()) : null
+  const d = soData ? new Date(Number(soData[1]), Number(soData[2]) - 1, Number(soData[3])) : new Date(v)
   return Number.isNaN(d.getTime()) ? null : d
 }
 
@@ -38,6 +43,12 @@ export const dataBR = (iso: string) => {
   return d ? d.toLocaleDateString('pt-BR') : SEM_VALOR
 }
 
+/** "sábado, 26 de setembro de 2026" (minúsculo, como o pt-BR escreve; a tela sobe só a primeira letra). */
+export const dataPorExtenso = (iso: string) => {
+  const d = data(iso)
+  return d ? d.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }) : SEM_VALOR
+}
+
 export const horaBR = (iso: string) => {
   const d = data(iso)
   return d ? d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : SEM_VALOR
@@ -56,6 +67,24 @@ export const relativo = (iso: string) => {
   if (h < 24) return `há ${h} h`
   const dias = Math.round(h / 24)
   return `há ${dias} d`
+}
+
+/**
+ * Texto digitado num campo de número em pt-BR → número, ou NaN se ainda não for um número.
+ * Aceita "0,5", "12,3456", "1.234,56" e também ponto decimal ("1234.5") quando não há vírgula.
+ * Meio de digitação ("5,", ",5") vale o que já dá para ler; "1,2,3" e letras são NaN.
+ */
+export const lerNumeroBR = (raw: string): number => {
+  const s = String(raw ?? '').replace(/\s/g, '')
+  if (!s) return NaN
+  const t = s.includes(',') ? s.replace(/\./g, '').replace(',', '.') : s
+  return /^-?(\d+\.?\d*|\.\d+)$/.test(t) ? Number(t) : NaN
+}
+
+/** Número → texto para editar num campo: vírgula decimal, sem milhar, sem zeros à direita, até `casas`. */
+export const numeroParaCampo = (v: number, casas = 6): string => {
+  const n = finito(v)
+  return n === null ? '' : n.toLocaleString('pt-BR', { maximumFractionDigits: casas, useGrouping: false })
 }
 
 export const cnpjFmt = (c: string) =>

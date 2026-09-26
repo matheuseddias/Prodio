@@ -2,10 +2,12 @@
 // backup sintético e o cliente autenticado chama rpc('import_catalog') no PostgREST, como a web faz. Confere o
 // formato da resposta com o lerResultadoImportacao do próprio core (o contrato entre banco e tela), a simulação,
 // a gravação, a reimportação sem mudanças, os itens de pedido sem produto religados pela importação, a trava dos
-// dados de exemplo (55000, apontando o script de limpeza certo) e o payload inválido (22023).
+// dados de exemplo (55000, apontando o script de limpeza certo) e o payload inválido (22023). A reimportação que
+// conserta os custos gravados pela regra antiga está em importacaoCustos.mjs.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { exercitarCustos } from './importacaoCustos.mjs'
 
 const TENANT = '0a1a0000-0000-4000-8000-00000000c0de'
 const CONECTOR = '0a1a0000-0000-4000-8000-00000000c0d1'
@@ -139,5 +141,6 @@ export async function exercitarImportacao({ clientes, seed, fontes, clienteDoTen
     const g = await rpc(TENANT, { ...plano.payload, usuarios: [] }, true)
     exigir(g.error?.code === '22023', `esperado 22023, veio ${g.error?.code ?? 'sucesso'}`)
   })
+  await exercitarCustos({ clientes, seed, fontes, clienteDoTenant, passo, core, web })
   return { falhas, feitos }
 }

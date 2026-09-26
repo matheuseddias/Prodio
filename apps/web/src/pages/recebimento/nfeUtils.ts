@@ -152,10 +152,14 @@ export const slugTenant = (nome: string) => norm(nome).split(/[^a-z0-9]+/).filte
  * Domínio que recebe XML de NF-e por e-mail. Tem que ser o mesmo domínio configurado
  * no Email Routing da Cloudflare que aponta para o worker (apps/worker/src/email.ts).
  */
-export const DOMINIO_EMAIL_XML = (import.meta.env.VITE_DOMINIO_EMAIL_XML ?? 'prodio.com.br').trim().replace(/^@/, '')
+// `||` e não `??`: o workflow Publicar passa a variável vazia quando ela não existe no GitHub, e o endereço
+// saía "xml@empresa." sem domínio.
+export const DOMINIO_EMAIL_XML = (import.meta.env.VITE_DOMINIO_EMAIL_XML || 'prodio.com.br').trim().replace(/^@/, '')
 
 /** Endereço que recebe XML por e-mail: xml@<slug>.<domínio> (sempre ativo). */
-export const emailXml = (nomeTenant: string) => `xml@${slugTenant(nomeTenant)}.${DOMINIO_EMAIL_XML}`
+// O worker acha a empresa pelo tenants.slug (apps/worker/src/email.ts, resolverSlug). Antes a tela montava o
+// endereço pelo nome, e de dois jeitos: Recebimento mostrava xml@eddias… e Configurações › Empresa xml@eddias-home….
+export const emailXml = (t: { slug?: string; nome: string }) => `xml@${t.slug?.trim() || slugTenant(t.nome)}.${DOMINIO_EMAIL_XML}`
 
 // ---- Nota a partir da chave + OC (consulta no provedor / recebimento às cegas) ----
 

@@ -1,7 +1,7 @@
 // Leituras do Supabase via from()/views (RLS protege). Uma função por fatia do Snapshot.
-import { diaISO } from '../domain/format'
 import type { Bom, Channel, Connector, DailyPlanLine, Device, Historico, Label, Location, Material, Member, NfeInbound, Notification, Operator, Product, PurchaseOrder, ScanEvent, StockMove, Supplier, Tenant } from '../domain/types'
 import { custoFicha } from '../domain/storeFicha'
+import { lerVendasPorDia } from './demanda'
 import { checar } from './erros'
 import * as M from './mapeadores'
 import { lerTudo } from './paginar'
@@ -9,11 +9,40 @@ import { diaAtual, type Ctx } from './supabaseCtx'
 
 export async function lerTenant(ctx: Ctx): Promise<Tenant> {
   const id = ctx.tenantId()
-  const [t, perfis] = await Promise.all([
-    ctx.sb.from('tenants').select('id,nome,cnpj,regime,credita_impostos,hora_virada,dias_uteis_mes,margem_projecao,dias_cobertura,margem_alvo_padrao,exigir_projecao_para_imprimir').eq('id', id).single(),
-    ctx.sb.from('label_profiles').select('familia,prefixo,tipos,unidades_por_caixa,instrucao_montagem').eq('tenant_id', id).order('familia'),
+  const [t, perfis, planejamento] = await Promise.all([
+    ctx.sb.from('tenants').select('id,nome,slug,cnpj,regime,credita_impostos,hora_virada,dias_uteis_mes,margem_projecao,dias_cobertura,margem_alvo_padrao,exigir_projecao_para_imprimir').eq('id', id).single(),
+    lerPerfisEtiqueta(ctx, id),
+    lerPlanejamentoDoTenant(ctx, id),
   ])
-  return M.tenantDoBanco(checar(t) as M.TenantRow, (checar(perfis) ?? []) as M.LabelProfileRow[])
+  return M.tenantDoBanco({ ...(checar(t) as M.TenantRow), ...planejamento }, perfis)
+}
+
+/**
+ * Perfis de etiqueta com o tamanho escolhido (label_size_id, migration 20260926000700). Banco sem a coluna (prévia
+ * da web antes de main publicar): relê sem ela, e o perfil fica sem tamanhoId (a gravação também não manda).
+ */
+async function lerPerfisEtiqueta(ctx: Ctx, id: string): Promise<M.LabelProfileRow[]> {
+  const res = await ctx.sb.from('label_profiles').select('familia,prefixo,tipos,unidades_por_caixa,instrucao_montagem,label_size_id').eq('tenant_id', id).order('familia')
+  if (!res.error) return (res.data ?? []) as M.LabelProfileRow[]
+  console.warn('[prodio] tamanho de etiqueta do perfil indisponível (migration pendente?):', res.error.message)
+  const antigo = await ctx.sb.from('label_profiles').select('familia,prefixo,tipos,unidades_por_caixa,instrucao_montagem').eq('tenant_id', id).order('familia')
+  return (checar(antigo) ?? []) as M.LabelProfileRow[]
+}
+
+/**
+ * Colunas da migration 20260926000500 numa leitura à parte: a prévia da web (outro branch) fala com o
+ * banco de produção, que só as ganha quando main publica. Sem elas a empresa carrega com os padrões
+ * e a gravação de Configurações não as manda (mapeadores: campo ausente não vai ao banco).
+ */
+async function lerPlanejamentoDoTenant(ctx: Ctx, id: string): Promise<Pick<M.TenantRow, 'dias_demanda' | 'dias_cobertura_acabado'>> {
+  try {
+    const res = await ctx.sb.from('tenants').select('dias_demanda,dias_cobertura_acabado').eq('id', id).single()
+    if (res.error) throw new Error(res.error.message)
+    return (res.data ?? {}) as Pick<M.TenantRow, 'dias_demanda' | 'dias_cobertura_acabado'>
+  } catch (e) {
+    console.warn('[prodio] janela da demanda indisponível (migration pendente?):', (e as Error)?.message)
+    return {}
+  }
 }
 
 export async function lerLocations(ctx: Ctx): Promise<Location[]> {
@@ -264,23 +293,14 @@ async function lerHistoricoProducao(ctx: Ctx) {
   return { dias: M.serieProducaoDoBanco(rows, M.intervaloDias(inicio, ate)), truncada }
 }
 
-/** Unidades vendidas por dia, de orders + order_items. Só pedido que virou demanda ou carteira. */
+/**
+ * Unidades vendidas por dia, agregadas no banco (RPC sales_by_day): todo pedido confirmado que não é
+ * 'ignorar', inclusive cancelado e enviado (decisão de 25/09), no dia de calendário do fuso do tenant.
+ * Antes a web trazia pedido por pedido e o teto de 1.000 linhas do PostgREST cortava a série: com a
+ * carga de 90 dias, o gráfico mostrava só os últimos dias e ninguém sabia.
+ */
 async function lerHistoricoVendas(ctx: Ctx) {
-  const ate = diaISO() // venda é do dia de calendário do pedido; hora de virada é de produção
-  const desde = M.somaDias(ate, -(DIAS_VENDAS - 1))
-  const res = await ctx.sb
-    .from('orders')
-    .select('confirmed_at,order_items(quantidade)', { count: 'exact' })
-    .eq('tenant_id', ctx.tenantId())
-    .in('significado', ['demanda', 'carteira'])
-    .gte('confirmed_at', new Date(`${desde}T00:00:00`).toISOString())
-    .lt('confirmed_at', new Date(`${M.somaDias(ate, 1)}T00:00:00`).toISOString())
-    .order('confirmed_at', { ascending: false })
-    .limit(LIMITE_LINHAS)
-  const rows = (checar(res) ?? []) as unknown as M.HistoricoVendasRow[]
-  const truncada = typeof res.count === 'number' && res.count > rows.length
-  const inicio = truncada ? M.primeiroDiaCompleto(rows.map(M.diaDaVenda), ate) : desde
-  return { dias: M.serieVendasDoBanco(rows, M.intervaloDias(inicio, ate)), truncada }
+  return { dias: await lerVendasPorDia(ctx, DIAS_VENDAS), truncada: false }
 }
 
 /** Tabelas que podem ainda não existir (migrations de outra frente): devolve vazio em vez de derrubar a tela. */

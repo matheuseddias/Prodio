@@ -12,7 +12,7 @@ import { emailXml } from './nfeUtils'
 export function ComoChegam() {
   const { tenant, connectors, modo, recarregar } = useStore()
   const { tenantId } = useAuth()
-  const email = emailXml(tenant.nome)
+  const email = emailXml(tenant)
   const [copiado, setCopiado] = useState(false)
   const [upload, setUpload] = useState<{ nome: string; estado: 'enviando' | 'ok' | 'erro'; detalhe?: string } | null>(null)
   const erpNfe = connectors.filter((c) => c.status === 'conectado' && c.capacidades.nfeCompra)

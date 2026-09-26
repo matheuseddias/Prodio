@@ -76,8 +76,7 @@ export default function EstoqueInventario() {
                 <thead>
                   <tr>
                     <Th>Data</Th>
-                    <Th>Local</Th>
-                    <Th>Quem</Th>
+                    <Th>Local · quem</Th>
                     <Th right>Contados</Th>
                     <Th right>Divergência</Th>
                     <Th>Status</Th>
@@ -94,11 +93,13 @@ export default function EstoqueInventario() {
                           <div>{dataBR(s.abertaEm)}</div>
                           <div className="text-[12px] text-muted">{aberta ? `aberta ${relativo(s.abertaEm)}` : `fechada ${relativo(s.fechadaEm ?? s.abertaEm)}`}</div>
                         </Td>
-                        <Td>
+                        {/* Quem contou vai na segunda linha do local: a coluna própria empurrava "Retomar" para fora do cartão em 1366 px. */}
+                        <Td className="min-w-[150px]">
                           <div>{s.local}</div>
-                          <div className="text-[12px] text-muted">{s.origem === 'celular' ? 'pelo celular' : 'no desktop'}</div>
+                          <div className="text-[12px] text-muted">
+                            {s.por} · {s.origem === 'celular' ? 'pelo celular' : 'no desktop'}
+                          </div>
                         </Td>
-                        <Td className="text-muted">{s.por}</Td>
                         <Td right className="tabular-nums">
                           {aberta ? `${r.contados.length} de ${s.itens.length}` : num(s.itens.length)}
                         </Td>
@@ -113,7 +114,7 @@ export default function EstoqueInventario() {
                           )}
                         </Td>
                         <Td><Badge tone={aberta ? 'accent' : 'neutral'}>{aberta ? 'Aberta' : 'Fechada'}</Badge></Td>
-                        <Td right>
+                        <Td right className="whitespace-nowrap">
                           <Button size="sm" variant={aberta ? 'primary' : 'ghost'} onClick={() => setAbertaId(s.id)}>
                             {aberta ? <><Play size={13} /> Retomar</> : 'Ver'}
                           </Button>

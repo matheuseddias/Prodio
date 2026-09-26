@@ -17,8 +17,11 @@ export interface ParametrosNecessidade {
   tetoPct: number // teto do mês = necessidade mensal × (1 + tetoPct)
   abcA: number // fração acumulada de valor da curva A
   abcB: number // fração acumulada de valor da curva B
+  // por_saldo: o alvo cobre também o lead time do insumo (consumo × (lead + cobertura)), como a tela
+  // "Por saldo" da Necessidade: compra-se para chegar e ainda sobrar a cobertura.
+  coberturaMaisLead: boolean
 }
-export const PARAMETROS_PADRAO: ParametrosNecessidade = { diasCobertura: 30, diasSeguranca: 7, leadPadraoDias: 7, ultimasOcs: 5, leadMaxDias: 90, tetoPct: 0.07, abcA: 0.8, abcB: 0.95 }
+export const PARAMETROS_PADRAO: ParametrosNecessidade = { diasCobertura: 30, diasSeguranca: 7, leadPadraoDias: 7, ultimasOcs: 5, leadMaxDias: 90, tetoPct: 0.07, abcA: 0.8, abcB: 0.95, coberturaMaisLead: false }
 
 export interface EntradasNecessidade {
   modo: ModoNecessidade
@@ -159,7 +162,6 @@ export function necessidadeDeCompra(e: EntradasNecessidade): ResultadoNecessidad
     const consumoDia = qtdMes / 30
     const saldo = e.saldos?.[materialId] ?? m?.saldo ?? 0
     const emTransito = transito[materialId] ?? 0
-    const necessidade = e.modo === 'metrica_mes' ? qtdFinal : Math.max(0, consumoDia * (1 + margemUsada) * p.diasCobertura - saldo - emTransito)
     const fator = m?.fatorConversao ?? 1
     const custoUnit = m?.custoMedio ?? 0
     const fornecedorId = m?.fornecedorPadraoId
@@ -170,6 +172,8 @@ export function necessidadeDeCompra(e: EntradasNecessidade): ResultadoNecessidad
     }
     const leadAprendido = lead !== null
     const leadDias = lead ?? fornecedores.get(fornecedorId ?? '')?.leadTimeDias ?? m?.leadTimeDias ?? p.leadPadraoDias
+    const alvoDias = p.diasCobertura + (p.coberturaMaisLead ? leadDias : 0)
+    const necessidade = e.modo === 'metrica_mes' ? qtdFinal : Math.max(0, consumoDia * (1 + margemUsada) * alvoDias - saldo - emTransito)
     const coberturaDias = consumoDia > 0 ? saldo / consumoDia : Infinity
     const coberturaComTransitoDias = consumoDia > 0 ? (saldo + emTransito) / consumoDia : Infinity
     const folgaDias = coberturaComTransitoDias === Infinity ? Infinity : coberturaComTransitoDias - leadDias - p.diasSeguranca

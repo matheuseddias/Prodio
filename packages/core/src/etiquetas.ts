@@ -1,7 +1,9 @@
 // Etiquetas: serial = prefixo + SKU + AAMMDD + sequência de 4 dígitos; perfis por família.
 import type { LabelProfile } from './tipos'
 
-export const PERFIL_PADRAO: LabelProfile = { familia: '*', prefixo: 'PR', tipos: ['produto'], unidadesPorCaixa: 1 }
+// Família sem perfil: o mesmo que a RPC reserve_label_batch grava (prefixo 'ET', 1 unidade por caixa). A web
+// mostrava 'PR' e 6 por caixa enquanto o banco imprimia 'ET' e 1: a etiqueta e a tela discordavam.
+export const PERFIL_PADRAO: LabelProfile = { familia: '*', prefixo: 'ET', tipos: ['produto'], unidadesPorCaixa: 1 }
 
 const RE_PREFIXO = /^[A-Z]{2,3}$/
 export const validarPrefixo = (prefixo: string): boolean => RE_PREFIXO.test(prefixo)

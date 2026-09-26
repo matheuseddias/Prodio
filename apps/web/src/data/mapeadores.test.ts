@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { Bom, Channel, Material, Product, Supplier, Tenant } from '../domain/types'
+import { serieVendasDaRpc } from './demanda'
 import {
   bomLinhasParaBanco,
   bomsDoBanco,
   channelDoBanco,
   channelParaBanco,
   connectorDoBanco,
-  diaDaVenda,
   intervaloDias,
   materialDoBanco,
   materialParaBanco,
@@ -22,7 +22,6 @@ import {
   purchaseOrderDoBanco,
   scansDoBanco,
   serieProducaoDoBanco,
-  serieVendasDoBanco,
   somaDias,
   supplierDoBanco,
   supplierParaBanco,
@@ -50,6 +49,16 @@ describe('tenant', () => {
     expect(t.margemProjecao).toBe(0.1)
     expect(t.perfisEtiqueta[0]).toEqual({ familia: 'Espelho', prefixo: 'EH', tipos: ['produto', 'montagem'], unidadesPorCaixa: 6, instrucaoMontagem: undefined })
     expect(tenantParaBanco(t)).toMatchObject({ nome: 'Eddias', cnpj: '44664451000107', hora_virada: '05:00', margem_projecao: 0.1 })
+    // janela da média: sem a coluna (banco antes da migration) fica ausente e não vai ao banco; fora de 1..90 é corrigida
+    expect(t.diasDemanda).toBeUndefined()
+    expect('dias_demanda' in tenantParaBanco(t)).toBe(false)
+    expect(tenantDoBanco({ ...row, dias_demanda: '30' }, []).diasDemanda).toBe(30)
+    expect(tenantParaBanco({ ...t, diasDemanda: 500 }).dias_demanda).toBe(90)
+    expect('dias_demanda' in tenantParaBanco({ ...t, diasDemanda: undefined })).toBe(false)
+    // cobertura do acabado no hub: sem a coluna fica ausente; fora de 0..60 é corrigida
+    expect(t.diasCoberturaAcabado).toBeUndefined()
+    expect(tenantDoBanco({ ...row, dias_cobertura_acabado: 0 }, []).diasCoberturaAcabado).toBe(0)
+    expect(tenantParaBanco({ ...t, diasCoberturaAcabado: 99 }).dias_cobertura_acabado).toBe(60)
     expect(perfilDoBanco(perfilParaBanco(T, t.perfisEtiqueta[0]))).toEqual(t.perfisEtiqueta[0])
   })
 })
@@ -152,15 +161,18 @@ describe('histórico dos gráficos', () => {
       { dia: '2026-09-22', projetado: 0, produzido: 0 },
     ])
   })
-  it('vendas somam os itens do pedido no dia de calendário e ignoram pedido sem confirmação', () => {
-    const dia = new Date('2026-09-22T15:00:00Z')
-    const rows = [
-      { confirmed_at: dia.toISOString(), order_items: [{ quantidade: '3' }, { quantidade: 2 }] },
-      { confirmed_at: dia.toISOString(), order_items: [{ quantidade: '1' }] },
-      { confirmed_at: null, order_items: [{ quantidade: '99' }] },
-    ]
-    const d = diaDaVenda(rows[0])
-    expect(serieVendasDoBanco(rows, [d])).toEqual([{ dia: d, unidades: 6 }])
+  it('vendas por dia da RPC sales_by_day: número em texto vira número, dia torto sai, ordem do mais antigo', () => {
+    expect(
+      serieVendasDaRpc([
+        { dia: '2026-09-22', pedidos: '3', unidades: '6.0000' },
+        { dia: '2026-09-21', pedidos: 0, unidades: 0 },
+        { dia: '', pedidos: 1, unidades: 99 },
+      ]),
+    ).toEqual([
+      { dia: '2026-09-21', unidades: 0 },
+      { dia: '2026-09-22', unidades: 6 },
+    ])
+    expect(serieVendasDaRpc(null)).toEqual([])
   })
   it('somaDias anda no calendário e intervaloDias fecha nas duas pontas', () => {
     expect(somaDias('2026-03-01', -1)).toBe('2026-02-28')

@@ -1,26 +1,27 @@
-import { useMemo, useState } from 'react'
+import { Tags } from 'lucide-react'
+import { useState } from 'react'
 import { useStore } from '../../domain/store'
 import type { Tenant } from '../../domain/types'
-import { Card, Input, Toggle } from '../../ui'
-import PerfisEtiquetaEditor from './ConfigEtiquetas'
-import { mesclarPerfis, perfilInvalido } from './ConfigPerfis'
+import { Button, Card, Input, Toggle } from '../../ui'
 import { Row, SaveBar } from './ConfigShared'
 
-export default function ConfigProducao() {
-  const { tenant, setTenant, products } = useStore()
-  const familias = useMemo(() => Array.from(new Set(products.map((p) => p.familia))), [products])
-  // Base de comparação: o tenant com um perfil para cada família que ainda não tem.
-  const base = useMemo<Tenant>(() => ({ ...tenant, perfisEtiqueta: mesclarPerfis(tenant.perfisEtiqueta, familias) }), [tenant, familias])
-  const [f, setF] = useState<Tenant>(base)
-  const dirty = JSON.stringify(f) !== JSON.stringify(base)
-  const invalidos = f.perfisEtiqueta.filter(perfilInvalido).length
+// Os perfis de etiqueta por família saíram daqui para a aba Etiquetas (com os tamanhos). Esta aba grava só os
+// parâmetros de produção: família nova sem prefixo não trava mais o Salvar da hora de virada.
+export default function ConfigProducao({ onEtiquetas }: { onEtiquetas?: () => void }) {
+  const { tenant, setTenant } = useStore()
+  const [f, setF] = useState<Tenant>(tenant)
+  const semPerfis = (t: Tenant) => JSON.stringify({ ...t, perfisEtiqueta: [] })
+  const dirty = semPerfis(f) !== semPerfis(tenant)
 
   return (
     <Card title="Produção">
       <Row label="Hora de virada do dia" hint="Bipes antes desta hora contam no dia anterior (turno da madrugada).">
         <Input type="time" value={f.horaVirada} onChange={(e) => setF({ ...f, horaVirada: e.target.value })} className="max-w-[160px]" />
       </Row>
-      <Row label="Dias úteis no mês" hint="Usado para converter a venda mensal em demanda diária.">
+      <Row label="Média de vendas (dias)" hint="Janela dos pedidos que entram na demanda da Linha de hoje e da Necessidade de compra (1 a 90 dias). Todo pedido confirmado conta, inclusive cancelado e enviado.">
+        <Input type="number" min={1} max={90} value={f.diasDemanda ?? 14} onChange={(e) => setF({ ...f, diasDemanda: Number(e.target.value) })} className="max-w-[160px]" />
+      </Row>
+      <Row label="Dias úteis no mês" hint="Converte a venda do mês em demanda por dia de produção.">
         <Input type="number" min={1} max={31} value={f.diasUteisMes} onChange={(e) => setF({ ...f, diasUteisMes: Number(e.target.value) })} className="max-w-[160px]" />
       </Row>
       <Row label="Margem de projeção" hint="Percentual acima da média de vendas sugerido na Linha de hoje.">
@@ -32,6 +33,9 @@ export default function ConfigProducao() {
       <Row label="Dias de cobertura" hint="Quantos dias de venda o estoque de insumos deve cobrir para sugerir compra.">
         <Input type="number" min={1} value={f.diasCobertura} onChange={(e) => setF({ ...f, diasCobertura: Number(e.target.value) })} className="max-w-[160px]" />
       </Row>
+      <Row label="Cobertura do acabado no hub (dias)" hint="Com o saldo do hub conhecido (conferência noturna), a sugestão da Linha de hoje repõe o produto acabado até esta quantidade de dias de venda. Sem saldo, a meta é a venda de um dia.">
+        <Input type="number" min={0} max={60} value={f.diasCoberturaAcabado ?? 3} onChange={(e) => setF({ ...f, diasCoberturaAcabado: Number(e.target.value) })} className="max-w-[160px]" />
+      </Row>
       <Row label="Exigir projeção do dia para imprimir etiquetas" hint="Evita imprimir sem a encarregada ter confirmado a meta na Linha de hoje.">
         <Toggle
           checked={f.exigirProjecaoParaImprimir}
@@ -39,17 +43,12 @@ export default function ConfigProducao() {
           label={f.exigirProjecaoParaImprimir ? 'Exigido' : 'Livre'}
         />
       </Row>
-      {/* "Tamanho de etiqueta padrão" saiu: não existe campo no Tenant nem coluna em `tenants` para
-          guardá-lo, e o Select só acendia o botão Salvar — o usuário ajustava, via "Salvo",
-          recarregava e estava 50 × 30 de novo. O tamanho sai do modelo da impressora térmica. */}
-      <Row label="Etiquetas por família" hint="O serial começa com o prefixo da família. Cada família define quais etiquetas saem por peça; a de Produto é sempre gerada.">
-        <PerfisEtiquetaEditor value={f.perfisEtiqueta} onChange={(perfisEtiqueta) => setF({ ...f, perfisEtiqueta })} />
+      <Row label="Etiquetas por família" hint="Prefixo do serial, etiquetas geradas por peça e o tamanho de cada família.">
+        <Button size="sm" onClick={onEtiquetas}>
+          <Tags size={14} /> Abrir perfis e tamanhos de etiqueta
+        </Button>
       </Row>
-      <SaveBar
-        dirty={dirty && invalidos === 0}
-        aviso={invalidos > 0 ? `${invalidos} ${invalidos === 1 ? 'família com perfil inválido' : 'famílias com perfil inválido'}` : undefined}
-        onSave={() => setTenant(f)}
-      />
+      <SaveBar dirty={dirty} onSave={() => setTenant({ ...f, perfisEtiqueta: tenant.perfisEtiqueta })} />
     </Card>
   )
 }

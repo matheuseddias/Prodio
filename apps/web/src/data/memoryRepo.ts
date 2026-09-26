@@ -2,8 +2,9 @@
 // É o modo usado sem VITE_SUPABASE_URL. Cada ação devolve as fatias que mudaram.
 import type { PayloadImportacao, ResultadoImportacao } from '@prodio/core/importacaoEs'
 import * as mock from '../domain/mock'
+import { demandaExemplo } from '../domain/mockDemanda'
 import { custoFicha } from '../domain/storeFicha'
-import type { Bom, Channel, Connector, Device, Label, Material, Member, NfeInbound, Product, PurchaseOrder, StockMove, Supplier, Tenant } from '../domain/types'
+import type { Bom, Channel, Connector, DailyPlanLine, Device, Label, LabelSize, Material, Member, NfeInbound, Product, PurchaseOrder, StockMove, Supplier, Tenant } from '../domain/types'
 import { importarEmMemoria, type VinculoMemoria } from './importacaoMemoria'
 import * as local from './local'
 import { novoId, type OpcoesBipe, type OperadorInput, type Parte, type Patch, type RegistroBipe, type Repo, type Retorno, type Snapshot } from './repo'
@@ -16,8 +17,10 @@ export function snapshotExemplo(): Snapshot {
     suppliers: mock.suppliers,
     boms: mock.boms,
     dailyPlan: mock.dailyPlan,
+    demanda: demandaExemplo(mock.tenant.diasDemanda),
     historico: mock.historico,
     labels: mock.labels,
+    labelSizes: mock.labelSizes,
     scans: mock.scans,
     stockMoves: mock.stockMoves,
     purchaseOrders: mock.purchaseOrders,
@@ -33,7 +36,7 @@ export function snapshotExemplo(): Snapshot {
   }
 }
 
-const TODAS: Parte[] = ['tenant', 'products', 'materials', 'suppliers', 'boms', 'dailyPlan', 'historico', 'labels', 'scans', 'stockMoves', 'purchaseOrders', 'nfes', 'connectors', 'outbox', 'members', 'devices', 'notifications', 'channels', 'locations', 'operators']
+const TODAS: Parte[] = ['tenant', 'products', 'materials', 'suppliers', 'boms', 'dailyPlan', 'demanda', 'historico', 'labels', 'labelSizes', 'scans', 'stockMoves', 'purchaseOrders', 'nfes', 'connectors', 'outbox', 'members', 'devices', 'notifications', 'channels', 'locations', 'operators']
 
 export class MemoryRepo implements Repo {
   readonly modo = 'memoria' as const
@@ -83,6 +86,9 @@ export class MemoryRepo implements Repo {
   }
   async setProjetado(productId: string, projetado: number): Promise<Patch> {
     return this.aplicar(local.setProjetado(this.s, productId, projetado), ['dailyPlan'])
+  }
+  async adicionarAoPlano(linhas: DailyPlanLine[]): Promise<Patch> {
+    return this.aplicar(local.adicionarAoPlano(this.s, linhas).estado, ['dailyPlan'])
   }
   async printLabels(productId: string, qtd: number, tipo: 'unidade' | 'caixa'): Promise<Retorno<Label[]>> {
     const r = local.printLabels(this.s, productId, qtd, tipo)
@@ -151,7 +157,21 @@ export class MemoryRepo implements Repo {
     return this.aplicar(local.upsertOperator(this.s, o, `op-${Date.now().toString(36)}`), ['operators'])
   }
   async setTenant(t: Tenant): Promise<Patch> {
+    // A janela da média mudou: a demanda de exemplo é refeita na janela nova, como o banco faria.
+    if ((t.diasDemanda ?? 14) !== (this.s.tenant.diasDemanda ?? 14)) {
+      return this.aplicar({ ...this.s, tenant: t, demanda: demandaExemplo(t.diasDemanda) }, ['tenant', 'demanda'])
+    }
     return this.aplicar({ ...this.s, tenant: t }, ['tenant'])
+  }
+
+  async saveLabelSize(t: LabelSize): Promise<Patch> {
+    const novo = local.saveLabelSize(this.s, t)
+    if (novo === this.s) throw new Error('A empresa precisa de um tamanho padrão: marque outro como padrão em vez de desmarcar este.')
+    return this.aplicar(novo, ['labelSizes'])
+  }
+  async removeLabelSize(id: string): Promise<Patch> {
+    if (this.s.labelSizes.find((x) => x.id === id)?.padrao) throw new Error('O tamanho padrão não pode ser apagado: marque outro como padrão antes.')
+    return this.aplicar(local.removeLabelSize(this.s, id), ['labelSizes', 'tenant'])
   }
 
   async upsertChannel(c: Channel): Promise<Patch> {

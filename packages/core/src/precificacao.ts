@@ -36,6 +36,9 @@ export function avaliarPreco(canal: Channel, preco: number, custo: number, pesoK
   return { preco, comissao, taxaFixa, frete, imposto, ads, parcelamento, outros, custo, lucro, margem: preco > 0 ? lucro / preco : 0 }
 }
 
+/** O que o canal leva do preço: comissão, taxa fixa, frete do vendedor, imposto, ads, parcelamento e outros. */
+export const custosDoCanal = (r: ResultadoPreco): number => r.comissao + r.taxaFixa + r.frete + r.imposto + r.ads + r.parcelamento + r.outros
+
 // Preço mínimo para atingir a margem alvo (sobre o preço). Iterativo porque frete e taxa fixa dependem de faixas.
 export function precoParaMargem(canal: Channel, custo: number, pesoKg: number, margemAlvo: number): ResultadoPreco {
   const pctVar = (canal.comissaoPct + canal.impostoVendaPct + canal.adsPct + canal.parcelamentoPct + canal.outrosPct) / 100

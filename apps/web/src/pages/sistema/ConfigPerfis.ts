@@ -1,4 +1,5 @@
 // Regras dos perfis de etiqueta por família (tenant.perfisEtiqueta).
+import { PERFIL_PADRAO } from '@prodio/core/etiquetas'
 import { Box, Package, Wrench } from 'lucide-react'
 import type { LabelKind, LabelProfile } from '../../domain/types'
 
@@ -12,10 +13,13 @@ export const TIPOS_ETIQUETA: { id: LabelKind; label: string; desc: string; icon:
 
 export const ORDEM_TIPOS: LabelKind[] = ['produto', 'montagem', 'caixa']
 
-/** Une as famílias dos produtos com as que já têm perfil, criando perfis padrão para as novas. */
+/**
+ * Une as famílias dos produtos com as que já têm perfil. Família nova entra como o banco já imprime para ela
+ * (prefixo ET, só produto, 1 por caixa, tamanho padrão): antes entrava com prefixo vazio e travava o Salvar.
+ */
 export function mesclarPerfis(perfis: LabelProfile[], familias: string[]): LabelProfile[] {
-  const todas = Array.from(new Set([...perfis.map((p) => p.familia), ...familias]))
-  return todas.map((familia) => perfis.find((p) => p.familia === familia) ?? { familia, prefixo: '', tipos: ['produto'], unidadesPorCaixa: 6 })
+  const todas = Array.from(new Set([...perfis.map((p) => p.familia), ...familias.filter((f) => f.trim())]))
+  return todas.map((familia) => perfis.find((p) => p.familia === familia) ?? { familia, prefixo: PERFIL_PADRAO.prefixo, tipos: ['produto'], unidadesPorCaixa: PERFIL_PADRAO.unidadesPorCaixa })
 }
 
 export function perfilInvalido(p: LabelProfile) {

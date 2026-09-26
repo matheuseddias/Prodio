@@ -46,7 +46,9 @@ interface PedidoBL {
   order_status_id: number | string
   date_confirmed?: number
   date_add?: number
-  date_status_change?: number
+  // Desde quando o pedido está no status atual (unix, segundos). O getOrders não tem
+  // `date_status_change`: esse nome nunca veio, e o updatedAt caía sempre no date_confirmed.
+  date_in_status?: number
   delivery_price?: number | string
   products?: { sku?: string; product_id?: string | number; name?: string; quantity?: number | string; price_brutto?: number | string }[]
 }
@@ -83,7 +85,7 @@ export function normalizarPedidoBaseLinker(p: PedidoBL): PedidoNormalizado {
     externalId: String(p.order_id),
     status: String(p.order_status_id),
     confirmedAt: unixParaIso(p.date_confirmed),
-    updatedAt: unixParaIso(p.date_status_change ?? p.date_confirmed ?? p.date_add),
+    updatedAt: unixParaIso(p.date_in_status ?? p.date_confirmed ?? p.date_add),
     total: Math.round(total * 100) / 100,
     itens,
     // Sem `raw`: o pedido inteiro do BaseLinker (endereço, pagamento, dezenas de campos) não é lido

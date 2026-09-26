@@ -1,6 +1,7 @@
 // Escritas de produção e estoque: tudo por RPC (docs/schema.md, seções 0004 e 0005).
-import type { Bom, Label, StockMove } from '../domain/types'
+import type { Bom, DailyPlanLine, Label, StockMove } from '../domain/types'
 import { carregarFatias } from './fatias'
+import { lerDailyPlan } from './leituras'
 import { bomLinhasParaBanco, dailyPlanParaBanco, num } from './mapeadores'
 import type { OpcoesBipe, Patch, RegistroBipe, Retorno } from './repo'
 import { diaAtual, localPadraoId, rpc, type Ctx } from './supabaseCtx'
@@ -33,6 +34,20 @@ export async function reverseScan(ctx: Ctx, scanId: string): Promise<Patch> {
 export async function setProjetado(ctx: Ctx, productId: string, projetado: number): Promise<Patch> {
   const atual = ctx.estado().dailyPlan.find((l) => l.productId === productId) ?? { productId, demandaDia: 0, projetado, impresso: 0, bipado: 0, carteira: 0, saldoHub: 0 }
   await rpc(ctx, 'set_daily_plan', { p_tenant_id: ctx.tenantId(), p_dia: diaAtual(ctx), p_location_id: localPadraoId(ctx), p_linhas: [dailyPlanParaBanco({ ...atual, projetado })] })
+  return carregarFatias(ctx, ['dailyPlan'])
+}
+
+/**
+ * Sugestões da demanda entram no plano de hoje pela mesma RPC set_daily_plan, só para produto que ainda
+ * não está no plano. O plano é relido do banco logo antes de gravar: o ajuste que a encarregada fez em
+ * outro aparelho depois da última leitura desta tela não é sobrescrito.
+ */
+export async function adicionarAoPlano(ctx: Ctx, linhas: DailyPlanLine[]): Promise<Patch> {
+  const ja = new Set((await lerDailyPlan(ctx)).map((l) => l.productId))
+  const novas = linhas.filter((l) => !ja.has(l.productId) && l.projetado > 0)
+  if (novas.length) {
+    await rpc(ctx, 'set_daily_plan', { p_tenant_id: ctx.tenantId(), p_dia: diaAtual(ctx), p_location_id: localPadraoId(ctx), p_linhas: novas.map(dailyPlanParaBanco) })
+  }
   return carregarFatias(ctx, ['dailyPlan'])
 }
 

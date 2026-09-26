@@ -1,0 +1,26 @@
+{
+  "versao": 1,
+  "origem": "es",
+  "fornecedores": [],
+  "insumos": [
+    {"sku":"MP9101","nome":"Chapa Espelho 3mm 3,21x2,40 (exemplo)","unidade_compra":"un","unidade_consumo":"m2","fator_conversao":7.704,"minimo":0,"custo_referencia":29.1837},
+    {"sku":"MP9133","nome":"Filamento PETG 1kg Preto (exemplo)","unidade_compra":"un","unidade_consumo":"g","fator_conversao":1000,"minimo":0,"custo_referencia":0.0398},
+    {"sku":"MP9140","nome":"Montana Rockl Preto rolo 1,40x50m (exemplo)","unidade_compra":"rl","unidade_consumo":"m2","fator_conversao":70,"minimo":0},
+    {"sku":"MP9145","nome":"Bolha Inflável rolo 100 un (exemplo)","unidade_compra":"rl","unidade_consumo":"un","fator_conversao":100,"minimo":0,"custo_referencia":400.79},
+    {"sku":"MP9163","nome":"Caixa Embalagem Espelho 60cm (exemplo)","unidade_compra":"un","unidade_consumo":"un","fator_conversao":1,"minimo":0},
+    {"sku":"MP9172","nome":"Cola Promabonde 793 Cx 100 Tubos (exemplo)","unidade_compra":"cx","unidade_consumo":"cx","fator_conversao":1,"minimo":0,"custo_referencia":280},
+    {"sku":"MP9180","nome":"Etiqueta adesiva 100x50 rolo (exemplo)","unidade_compra":"rl","unidade_consumo":"un","fator_conversao":1,"minimo":0,"custo_referencia":85},
+    {"sku":"MP9190","nome":"Adesivo de instrução (exemplo)","unidade_compra":"un","unidade_consumo":"un","fator_conversao":1,"minimo":0}
+  ],
+  "produtos": [
+    {"sku":"ED900124","nome":"Espelho Adnet Redondo 60cm - Preto (exemplo)","familia":"Espelho","atributos":{"categoria":"Espelho","cor":"Preto","divisao":"Eddias Home","formato":"Redondo","tamanho":"60cm"},"status":"ativo","apelidos":[],"ncm":"7009.91.00"},
+    {"sku":"ED900379","nome":"Pino Suporte 3D - Preto (exemplo)","familia":"3D","atributos":{"categoria":"Componente","cor":"Preto","divisao":"Eddias"},"status":"ativo","apelidos":[],"ncm":"3926.90.90"},
+    {"sku":"ED900500","nome":"Porta-copos Espelhado (exemplo)","familia":"Porta-copos","atributos":{"categoria":"Porta-copos","divisao":"Eddias Home"},"status":"ativo","apelidos":[],"ncm":"7009.91.00"}
+  ],
+  "vinculos": [],
+  "fichas": [
+    {"produto_sku":"ED900124","linhas":[{"tipo":"insumo","insumo_sku":"MP9101","consumo":0.4,"unidade":"m2","perda_pct":0},{"tipo":"insumo","insumo_sku":"MP9140","consumo":0.1414,"unidade":"m2","perda_pct":0},{"tipo":"insumo","insumo_sku":"MP9145","consumo":4,"unidade":"un","perda_pct":0},{"tipo":"insumo","insumo_sku":"MP9163","consumo":1,"unidade":"un","perda_pct":0},{"tipo":"insumo","insumo_sku":"MP9172","consumo":0.00025,"unidade":"cx","perda_pct":0},{"tipo":"produto","componente_sku":"ED900379","consumo":1,"unidade":"un","perda_pct":0}]},
+    {"produto_sku":"ED900379","linhas":[{"tipo":"insumo","insumo_sku":"MP9133","consumo":6.3,"unidade":"g","perda_pct":0}]},
+    {"produto_sku":"ED900500","linhas":[{"tipo":"insumo","insumo_sku":"MP9180","consumo":1,"unidade":"un","perda_pct":0},{"tipo":"insumo","insumo_sku":"MP9190","consumo":1,"unidade":"un","perda_pct":0},{"tipo":"insumo","insumo_sku":"MP9101","consumo":0.01,"unidade":"m2","perda_pct":0}]}
+  ]
+}

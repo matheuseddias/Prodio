@@ -51,9 +51,12 @@ Legenda: **[andamento]** sendo feito agora · **[pesquisa]** falta confirmar fat
 
 ## Demanda, produção e compras
 
-13. Ligar os pedidos às telas: a demanda entra sozinha na Linha de hoje e na Necessidade a cada
-    sincronização e na virada do dia, preservando o ajuste manual da encarregada, com aviso de
-    "demanda desatualizada" quando o robô parar. Hoje as contas existem, mas nada as liga.
+13. Ligar os pedidos às telas — **feito em 26/09 no modo "média de vendas"**: a demanda é somada no
+    banco (`demand_summary`), a Linha de hoje mostra a sugestão e aplica com um clique (só produto fora
+    do plano; o ajuste da encarregada não é sobrescrito), a Necessidade usa a venda dos pedidos e lista
+    o que ficou de fora, o Painel conta pela regra nova, e as três telas avisam "demanda desatualizada"
+    (robô parado ou carga inicial longe de hoje). Falta: a sugestão entrar **sozinha** na virada do dia
+    (hoje é um clique) e os outros modos do item 14.
 14. **Modos de planejamento** (26/09). Na configuração da empresa, e ajustável no dia:
     - **pela média de vendas**: vendas dos últimos N dias × dias de cobertura − estoque − em
       produção;
@@ -68,15 +71,23 @@ Legenda: **[andamento]** sendo feito agora · **[pesquisa]** falta confirmar fat
     e Magalu preenchem; Tiny e Bling não expõem. O Prodio calcula o prazo por regra de canal e forma
     de envio (porta do `slaLimite` do ES) quando o marketplace não manda. **[pesquisa]** Falta o teste
     em conta real, só leitura.
-15a. `baselinker.ts` lê `date_status_change`, que não existe; o campo é `date_in_status`.
-15b. `demand_for_projection` e `v_demand_by_sku` contam só `demanda` e `carteira`; pela decisão de
-    25/09 a média tem de contar tudo que não for `ignorar` (inclusive cancelado e enviado).
 16. Vínculo de SKU: o pedido só vira demanda de um produto quando o SKU casa com um produto (ou
-    alias) do Prodio. Os produtos da Eddias usam SKU ED. Religar os itens de pedido gravados antes
-    de o produto existir.
-17. Unidade da demanda: guardar e usar por dia de produção (dias úteis), não por dia corrido.
-18. Unificar as fórmulas repetidas (necessidade de compra e explosão de ficha existem na tela e no
-    core).
+    alias) do Prodio. O robô casa na gravação e a importação do ES religa o que chegou antes; desde
+    26/09 os SKUs vendidos sem produto aparecem na Necessidade ("Fora do cálculo") e no Painel. Falta
+    religar quando o produto ou o apelido é cadastrado **na tela** (hoje só a importação e o próximo
+    sync do pedido religam).
+16a. Componente fabricado (linha de ficha tipo produto): o bipe do produto pai baixa também os insumos
+    do componente (`explode_bom` desce na ficha dele). Por isso a sugestão da Linha de hoje **não** põe
+    o componente no plano pela demanda dos pais (como no ES, componente fica fora da projeção do dia):
+    a demanda derivada aparece só como informação ("Nos pais/dia" e a lista de componentes), e o
+    sugerido do componente cobre só a venda avulsa dele. Se alguém puser o componente no plano à mão e
+    bipar, o insumo dele baixa duas vezes. **[decidir]** o bipe do pai baixa o componente pronto
+    (estoque de semiacabado, e aí o componente entra no plano) ou os insumos dele (como hoje).
+16b. Carteira (pedido 'carteira') continua limitada à janela da média: sem acompanhar o status depois
+    da confirmação (item 5), pedido antigo ficaria em carteira para sempre.
+18. Unificar as fórmulas repetidas. A Necessidade de compra usa o core desde 26/09. Falta a explosão
+    de ficha da interface (`domain/storeFicha.ts`, perda em percentual) virar a do core (perda em
+    fração): hoje a tela converte com `bomsParaCore` antes de chamar o core.
 
 ## Catálogo e kits
 
@@ -105,7 +116,36 @@ Legenda: **[andamento]** sendo feito agora · **[pesquisa]** falta confirmar fat
     de etiqueta (código de barras Code 128 ou QR). Pesquisa: os três hubs casam pelo SKU ou pelo EAN
     (Base exige 6+ caracteres; Tiny só EAN-13). Padrão Code 128 com o SKU exato, só na etiqueta de
     produto; tamanhos e layout por etiqueta em `docs/pesquisa-prazo-de-envio.md`. Falta teste
-    físico com leitor.
+    físico com leitor. Os tamanhos já são cadastráveis (26/09, item 35); falta o código entrar no
+    desenho da etiqueta (`packages/core/src/etiquetaLayout.ts`).
+
+## Personalização
+
+Varredura de 26/09 do que está fixo no código e varia de fábrica para fábrica. Tabela completa, com arquivo:linha,
+impacto e esforço, em `docs/personalizacao.md`. **Feito em 26/09**: tamanhos de etiqueta cadastráveis
+(Configurações › Etiquetas: medidas, margem, dpi, orientação, colunas no rolo, padrão; o perfil da família escolhe o
+tamanho; prévia em escala real; a impressão sai na medida exata e avisa o que não cabe), o prefixo padrão da família
+sem perfil igual ao do banco (ET, 1 por caixa; a tela dizia PR e 6) e o e-mail de XML pelo `tenants.slug` (a tela
+montava pelo nome, de dois jeitos). Na fila, por prioridade:
+
+31. **[P0]** Unidades da empresa no cadastro de insumo: a tabela `units` é por empresa, mas a tela usa a lista fixa do
+    exemplo (`Insumos.tsx:3`). Quem compra em par, peça, litro ou fardo não consegue cadastrar.
+32. **[P1]** Fuso da empresa na tela, e a web calculando o dia de produção por ele (hoje usa o relógio do navegador;
+    o banco usa `tenants.fuso`).
+33. **[P1]** Calendário de produção (sábado, feriados, férias coletivas) no lugar do número fixo de dias úteis.
+34. **[P1]** Parâmetros da necessidade de compra na empresa: dias de segurança, lead time padrão, OCs na média do
+    lead, teto do mês, cortes da curva ABC (`PARAMETROS_PADRAO` fixo no core).
+35. **[P1]** Conteúdo da etiqueta por perfil (campos, EAN, data, lote, logo), junto com o código de expedição do item 27.
+36. **[P1]** Carga inicial e páginas por rodada do robô na tela do conector (hoje só por SQL em `connectors.config`).
+37. **[P1]** Notificações: o worker passar a enviar o que a matriz de Configurações grava.
+38. **[P2]** Tamanho próprio para a etiqueta de caixa; folha A4 de etiquetas (Pimaco) em impressora comum; formato do
+    serial (a sequência de 4 dígitos repete serial acima de 9.999 peças de um SKU por dia).
+39. **[P2]** Lote mínimo e múltiplo de compra por fornecedor; margem por insumo na tela; CFOPs de compra por empresa.
+40. **[P2]** Arredondamento do preço sugerido (hoje sempre ,x9); etapas de produção com tela; papéis e permissões
+    ajustáveis.
+41. **[decidir]** Domínio do e-mail de XML: o worker aceita só `xml@<slug>.prodio.app`, a web e o deploy usam
+    `prodio.com.br`. Escolher e fazer o worker ler o mesmo valor.
+42. **[decidir]** Tamanho de etiqueta: só o admin cadastra (a produção só escolhe no perfil). Abrir para a produção?
 
 ## Adiados pelo fundador
 

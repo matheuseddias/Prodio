@@ -58,7 +58,7 @@ export default function Calculadora({ onIrParaCanais }: { onIrParaCanais: () => 
   const canalSel = canaisAtivos.find((c) => c.id === canalDetalhe) ?? null
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-5 items-start">
+    <div className="grid grid-cols-1 xl:grid-cols-[320px_minmax(0,1fr)] 2xl:grid-cols-[360px_minmax(0,1fr)] gap-5 items-start">
       <div className="flex flex-col gap-5 min-w-0">
         <Card title="Produto" padded={false}>
           <div className="px-5 pb-3">

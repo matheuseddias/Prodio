@@ -42,11 +42,12 @@ describe('importação do ES · adversarial', () => {
   it('números como texto (com vírgula ou ponto) viram número', () => {
     const p = planejar((b) => {
       b.insumos[0].fatorConversao = '7,704'
-      b.insumos[0].custoMedio = '29,1837'
+      b.insumos[0].valorNfe = '300,00'
+      b.insumos[0].aliqIcms = '12'
       b.insumos[0].minimo = '30.8'
       b.fornecedores[2].leadTime = '7'
     })
-    expect(p.payload.insumos.find((i) => i.sku === 'MP9001')).toMatchObject({ fator_conversao: 7.704, custo_referencia: 29.1837, minimo: 30.8, lead_time_dias: 7 })
+    expect(p.payload.insumos.find((i) => i.sku === 'MP9001')).toMatchObject({ fator_conversao: 7.704, custo_referencia: 31.0981, minimo: 30.8, lead_time_dias: 7 })
   })
 
   it('textos enormes são cortados e o payload respeita os limites do banco', () => {
@@ -69,6 +70,7 @@ describe('importação do ES · adversarial', () => {
 
   it('números absurdos (negativos, infinitos, gigantes) não vão ao payload', () => {
     const p = planejar((b) => {
+      b.insumos[0].valorNfe = -300
       b.insumos[0].custoMedio = -5
       b.insumos[0].minimo = -1
       b.insumos[1].fatorConversao = 1e300

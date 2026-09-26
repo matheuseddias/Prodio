@@ -20,7 +20,7 @@ export interface LinhaExplosao {
 export default function FichasExplosao({ explosao, custoTotal, bomAtual, hist }: { explosao: LinhaExplosao[]; custoTotal: number; bomAtual?: Bom; hist: Versao[] }) {
   const insumosInexistentes = explosao.filter((e) => !e.m)
   return (
-    <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
+    <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_300px] items-start">
       <Card title="Explosão (1 unidade)" padded={false}>
         {insumosInexistentes.length > 0 && (
           <div className="mx-5 mb-3 flex items-start gap-2 rounded-lg bg-warn-soft text-warn px-3 py-2 text-[13px]">

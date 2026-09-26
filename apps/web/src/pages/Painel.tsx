@@ -1,11 +1,14 @@
-import { AlertTriangle, ArrowRight, Bell, BookOpen, Boxes, Package, Plug, ShoppingCart, Truck } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Bell, BookOpen, Boxes, Package, PackageX, Plug, ShoppingCart, Sparkles, Truck } from 'lucide-react'
 import { useMemo, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { diaProducao, hojeISO, num, pct, relativo } from '../domain/format'
+import { foraDaTela, frescorDaTela, linhasParaAplicar, sugestoesDoDia } from '../domain/demanda'
+import { dataHoraBR, diaProducao, hojeISO, num, pct, relativo } from '../domain/format'
 import { comHoje, semProducao, semVendas, ultimosDias } from '../domain/historico'
 import { useLookups, useStore } from '../domain/store'
 import { Badge, Button, Card, EmptyState, Progress, Stat, cx, type Tone } from '../ui'
+import AvisoDemanda from './producao/AvisoDemanda'
 import { GroupedBars } from './producao/charts'
+import { useDemandaViva } from './producao/useDemandaViva'
 
 const rotaNotificacao: Record<string, string> = {
   minimo: '/estoque',
@@ -33,20 +36,38 @@ export default function Painel() {
   const { productRef } = useLookups()
   const nav = useNavigate()
   const hoje = hojeISO()
+  useDemandaViva()
 
   const produzido = s.dailyPlan.reduce((a, l) => a + l.bipado, 0)
   const projetado = s.dailyPlan.reduce((a, l) => a + l.projetado, 0)
-  // `?? 0` aqui mostrava "Pedidos 24h: 0" com toda a segurança de um número real. O número agora é
-  // uma contagem em `orders` por conector (data/leituras.ts, lerConnectors); conector sem contagem
-  // fica de fora, e sem nenhuma contagem o painel mostra "—" em vez de zero. Soma todos os hubs:
-  // antes lia só o primeiro conector da lista, que nem sempre é o que traz pedidos.
+  // Pedidos 24h: com a demanda lida, a regra dela (decisão de 25/09) — todo pedido confirmado nas últimas 24 h
+  // que não é 'ignorar', de todos os hubs. Sem ela, a contagem em `orders` por conector (data/leituras.ts,
+  // lerConnectors); sem nenhuma das duas, "—" em vez de um zero com cara de número real. Durante a carga
+  // inicial o zero é verdadeiro, mas o hint diz até onde o robô leu.
   const comPedidos24h = s.connectors.filter((c) => c.pedidos24h !== undefined)
-  const pedidos24h = comPedidos24h.length ? comPedidos24h.reduce((a, c) => a + (c.pedidos24h ?? 0), 0) : undefined
+  const pedidos24h = s.demanda.disponivel ? s.demanda.pedidos24h : comPedidos24h.length ? comPedidos24h.reduce((a, c) => a + (c.pedidos24h ?? 0), 0) : undefined
+  const frescor = useMemo(() => frescorDaTela(s.demanda, s.connectors), [s.demanda, s.connectors])
+  const cargaAtrasada = frescor?.situacao === 'carga_atrasada' && !!s.demanda.ultimoPedido
+  const hintPedidos =
+    pedidos24h === undefined
+      ? s.connectors.some((c) => c.status !== 'desconectado') ? 'contagem indisponível agora' : 'nenhum hub conectado'
+      : cargaAtrasada
+        ? `o robô leu até ${dataHoraBR(s.demanda.ultimoPedido!)}`
+        : s.demanda.disponivel
+          ? 'confirmados, menos "ignorar"'
+          : comPedidos24h.length === 1
+            ? comPedidos24h[0].nome
+            : 'somando todos os hubs'
   const abaixoMinimo = s.materials.filter((m) => m.saldo < m.minimo)
   const ocsHoje = s.purchaseOrders.filter((po) => (po.status === 'aberta' || po.status === 'parcial') && po.entregaPrevista === hoje)
   const ocsAtrasadas = s.purchaseOrders.filter((po) => (po.status === 'aberta' || po.status === 'parcial') && !!po.entregaPrevista && po.entregaPrevista < hoje)
   const nfesPendentes = s.nfes.filter((n) => n.status === 'pendente' || n.status === 'aguardando_xml')
-  const semFicha = s.products.filter((p) => p.status === 'ativo' && !p.temFicha)
+  // Vendidos na janela da demanda sem ficha ativa. Antes contava todo produto ativo sem ficha, vendido ou não.
+  const fora = useMemo(() => foraDaTela(s.demanda, s.products), [s.demanda, s.products])
+  const sugeridos = useMemo(
+    () => (s.dailyPlan.length > 0 ? [] : linhasParaAplicar(sugestoesDoDia({ tenant: s.tenant, demanda: s.demanda, boms: s.boms, products: s.products, dailyPlan: s.dailyPlan, labels: s.labels, scans: s.scans }))),
+    [s.tenant, s.demanda, s.boms, s.products, s.dailyPlan, s.labels, s.scans],
+  )
   const outboxErro = s.outbox.filter((o) => o.status === 'erro')
   const avisos = s.notifications.filter((n) => !n.lida)
 
@@ -83,6 +104,8 @@ export default function Painel() {
         </div>
       </div>
 
+      <AvisoDemanda className="mb-4" />
+
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
         <Link to="/producao/linha-de-hoje" className="col-span-2 lg:col-span-1">
           <Stat
@@ -100,7 +123,8 @@ export default function Painel() {
           <Stat
             label="Pedidos 24h"
             value={pedidos24h === undefined ? '—' : num(pedidos24h)}
-            hint={pedidos24h === undefined ? (s.connectors.some((c) => c.status !== 'desconectado') ? 'contagem indisponível agora' : 'nenhum hub conectado') : comPedidos24h.length === 1 ? comPedidos24h[0].nome : 'somando todos os hubs'}
+            hint={hintPedidos}
+            tone={cargaAtrasada ? 'warn' : undefined}
             icon={<ShoppingCart size={16} />}
           />
         </Link>
@@ -126,7 +150,16 @@ export default function Painel() {
           }
         >
           {topLinha.length === 0 ? (
-            <EmptyState title="Sem plano para hoje" description="Defina a projeção do dia na Linha de hoje." action={<Button size="sm" onClick={() => nav('/producao/linha-de-hoje')}>Definir projeção</Button>} />
+            sugeridos.length > 0 ? (
+              <EmptyState
+                icon={<Sparkles size={28} />}
+                title="Sem plano para hoje"
+                description={`A média de vendas sugere ${num(sugeridos.length)} SKUs e ${num(sugeridos.reduce((a, l) => a + l.projetado, 0))} un para hoje.`}
+                action={<Button size="sm" variant="primary" onClick={() => nav('/producao/linha-de-hoje')}>Ver e aplicar a sugestão</Button>}
+              />
+            ) : (
+              <EmptyState title="Sem plano para hoje" description="Defina a projeção do dia na Linha de hoje." action={<Button size="sm" onClick={() => nav('/producao/linha-de-hoje')}>Definir projeção</Button>} />
+            )
           ) : (
             <ul className="space-y-3">
               {topLinha.map((l) => {
@@ -197,7 +230,11 @@ export default function Painel() {
           {semVendas(vendas14) ? (
             <EmptyState
               title="Ainda sem vendas no período"
-              description="As unidades vendidas por dia vêm dos pedidos do conector. Conecte um canal para o Prodio contar as vendas."
+              description={
+                cargaAtrasada
+                  ? `O robô ainda está lendo pedidos de ${dataHoraBR(s.demanda.ultimoPedido!)}: as vendas destes 14 dias aparecem quando a carga chegar nelas.`
+                  : 'As unidades vendidas por dia vêm dos pedidos do conector (todo pedido confirmado, menos "ignorar"). Conecte um canal para o Prodio contar as vendas.'
+              }
               action={
                 <Button size="sm" onClick={() => nav('/conectores')}>
                   Conectores
@@ -211,7 +248,8 @@ export default function Painel() {
 
         <Card title="Saúde do cadastro" className="xl:col-span-1">
           <div className="space-y-0.5">
-            <SaudeItem to="/cadastros/fichas" icon={<BookOpen size={16} />} label="Produtos vendidos sem ficha" count={semFicha.length} tone="warn" />
+            <SaudeItem to="/cadastros/fichas" icon={<BookOpen size={16} />} label="Produtos vendidos sem ficha" count={fora.semFicha.length} tone="warn" />
+            <SaudeItem to="/compras/necessidade" icon={<PackageX size={16} />} label="SKUs vendidos sem produto" count={fora.semProduto.skus} tone="warn" />
             <SaudeItem to="/estoque" icon={<Boxes size={16} />} label="Insumos abaixo do mínimo" count={abaixoMinimo.length} tone="danger" />
             <SaudeItem to="/compras/ordens" icon={<Package size={16} />} label="OCs atrasadas" count={ocsAtrasadas.length} tone="warn" />
             <SaudeItem to="/conectores" icon={<Plug size={16} />} label="Outbox com erro" count={outboxErro.length} tone="danger" />

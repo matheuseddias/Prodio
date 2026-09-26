@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import { brl, dataHoraBR, relativo } from '../../domain/format'
 import { custoFicha, explodeBom, useStore } from '../../domain/store'
 import type { Bom, BomLine, Material, Product } from '../../domain/types'
-import { Button, Card, EmptyState, Input, PageHeader, Select, Table, Td, Th, Toggle, cx } from '../../ui'
+import { Button, Card, CampoNumero, EmptyState, PageHeader, Select, Table, Td, Th, Toggle, cx } from '../../ui'
 import FichasCalculadora from './FichasCalculadora'
 import FichasExplosao, { type LinhaExplosao, type Versao } from './FichasExplosao'
 import FichasItemPicker from './FichasItemPicker'
@@ -77,7 +77,7 @@ export default function Fichas() {
   }
   const erroLinha = (l: BomLine): string | undefined => {
     if (l.tipo === 'insumo') {
-      if (!l.materialId) return 'Escolha o insumo'
+      if (!l.materialId) return 'Escolha o insumo ou o componente'
       if (!matById.has(l.materialId)) return 'Insumo não existe mais'
     } else {
       if (!l.componentId) return 'Escolha o componente'
@@ -99,8 +99,9 @@ export default function Fichas() {
     setSujo(true)
   }
   // Item que não está mais na lista (excluído em outra aba) não pode entrar na ficha nem quebrar a tela.
-  const setMaterial = (id: string, m?: Material) => m && upd(id, { materialId: m.id, componentId: undefined, unidade: m.unidadeConsumo })
-  const setComponente = (id: string, p?: Product) => p && upd(id, { componentId: p.id, materialId: undefined, unidade: 'un' })
+  const setMaterial = (id: string, m?: Material) => m && upd(id, { tipo: 'insumo', materialId: m.id, componentId: undefined, unidade: m.unidadeConsumo })
+  const setComponente = (id: string, p?: Product) => p && upd(id, { tipo: 'produto', componentId: p.id, materialId: undefined, unidade: 'un' })
+  const escolher = (linhaId: string, tipo: BomLine['tipo'], itemId: string) => (tipo === 'insumo' ? setMaterial(linhaId, matById.get(itemId)) : setComponente(linhaId, prodById.get(itemId)))
 
   const copiar = () => {
     const b = boms.find((x) => x.productId === copiarDe && x.ativa)
@@ -128,7 +129,7 @@ export default function Fichas() {
     <>
       <PageHeader title="Fichas técnicas" subtitle="Quanto de cada insumo entra em uma unidade do produto. É daqui que saem o custo, a baixa de estoque e a necessidade de compra." />
 
-      <div className="grid gap-4 lg:grid-cols-[300px_1fr] items-start">
+      <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)] 2xl:grid-cols-[300px_minmax(0,1fr)] items-start">
         <FichasLista products={products} boms={boms} selecionadoId={selecionadoId} onSelect={selecionar} />
 
         {!produto ? (
@@ -179,13 +180,13 @@ export default function Fichas() {
                   <Table>
                     <thead>
                       <tr>
-                        <Th>Tipo</Th>
                         <Th>Item</Th>
-                        <Th right>Consumo / un</Th>
-                        <Th>Unid.</Th>
-                        <Th right>Perda %</Th>
-                        <Th right>Custo linha</Th>
-                        <Th right></Th>
+                        <Th right className="w-px whitespace-nowrap">Consumo / un</Th>
+                        <Th right className="w-px whitespace-nowrap">Perda %</Th>
+                        <Th right className="w-px whitespace-nowrap">Custo linha</Th>
+                        <Th className="w-px">
+                          <span className="sr-only">Ações</span>
+                        </Th>
                       </tr>
                     </thead>
                     <tbody>
@@ -193,47 +194,32 @@ export default function Fichas() {
                         const err = erros[i]
                         return (
                           <tr key={l.id} className={cx(err && 'bg-danger-soft/30')}>
-                            <Td>
-                              <Select
-                                value={l.tipo}
-                                onChange={(e) => upd(l.id, { tipo: e.target.value as BomLine['tipo'], materialId: undefined, componentId: undefined, unidade: '' })}
-                                className="h-9 w-[130px]"
-                              >
-                                <option value="insumo">Insumo</option>
-                                <option value="produto">Produto comp.</option>
-                              </Select>
-                            </Td>
-                            <Td>
-                              {l.tipo === 'insumo' ? (
-                                <FichasItemPicker opcoes={opcoesMat} value={l.materialId} onChange={(id) => setMaterial(l.id, matById.get(id))} placeholder="Escolher insumo…" />
-                              ) : (
-                                <FichasItemPicker opcoes={opcoesProd} value={l.componentId} onChange={(id) => setComponente(l.id, prodById.get(id))} placeholder="Escolher produto…" />
-                              )}
+                            <Td className="py-2.5">
+                              <FichasItemPicker insumos={opcoesMat} produtos={opcoesProd} tipo={l.tipo} value={l.tipo === 'insumo' ? l.materialId : l.componentId} onChange={(tipo, id) => escolher(l.id, tipo, id)} />
                               {err && <div className="mt-1 text-[12px] text-danger">{err}</div>}
                             </Td>
-                            <Td right>
-                              <div className="flex items-center justify-end gap-1">
-                                <Input
-                                  type="number"
-                                  inputMode="decimal"
-                                  step="0.0001"
-                                  min="0"
+                            <Td right className="py-2.5">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <CampoNumero
                                   value={l.consumo}
-                                  onChange={(e) => upd(l.id, { consumo: Number(e.target.value) })}
-                                  className="h-9 w-28 text-right tabular-nums"
+                                  onChange={(v) => upd(l.id, { consumo: v })}
+                                  min={0}
+                                  casas={6}
+                                  aria-label="Consumo por unidade"
+                                  className="h-9 w-28 min-w-28 px-2.5"
                                 />
-                                <Button variant="ghost" size="sm" onClick={() => setCalcLinha(l.id)} aria-label="Calculadora de consumo" title="Calculadora de consumo">
+                                <span className="w-7 text-left text-[13px] text-muted">{l.unidade || '—'}</span>
+                                <Button variant="ghost" size="sm" className="px-2" onClick={() => setCalcLinha(l.id)} aria-label="Calculadora de consumo" title="Calculadora de consumo">
                                   <Calculator size={15} />
                                 </Button>
                               </div>
                             </Td>
-                            <Td className="text-muted">{l.unidade || <span className="text-faint">—</span>}</Td>
-                            <Td right>
-                              <Input type="number" inputMode="decimal" step="0.5" min="0" value={l.perdaPct} onChange={(e) => upd(l.id, { perdaPct: Number(e.target.value) })} className="h-9 w-20 text-right tabular-nums" />
+                            <Td right className="py-2.5">
+                              <CampoNumero value={l.perdaPct} onChange={(v) => upd(l.id, { perdaPct: v })} min={0} max={100} vazio={0} casas={2} aria-label="Perda %" className="h-9 w-20 min-w-20 px-2.5" />
                             </Td>
-                            <Td right className="font-medium">{brl(custoLinha(l))}</Td>
-                            <Td right>
-                              <Button variant="ghost" size="sm" onClick={() => { setLinhas((ls) => ls.filter((x) => x.id !== l.id)); setSujo(true) }} aria-label="Remover linha" title="Remover">
+                            <Td right className="py-2.5 whitespace-nowrap font-medium">{brl(custoLinha(l))}</Td>
+                            <Td right className="py-2.5">
+                              <Button variant="ghost" size="sm" className="px-2" onClick={() => { setLinhas((ls) => ls.filter((x) => x.id !== l.id)); setSujo(true) }} aria-label="Remover linha" title="Remover">
                                 <Trash2 size={15} />
                               </Button>
                             </Td>

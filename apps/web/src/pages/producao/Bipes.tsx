@@ -173,7 +173,7 @@ export function Bipes() {
                         <Td className="tabular-nums whitespace-nowrap">{horaBR(x.em)}</Td>
                         <Td mono className="whitespace-nowrap">{x.serial}</Td>
                         <Td>
-                          <div className="whitespace-nowrap">
+                          <div className="min-w-[160px]">
                             <span className={cx(ref.removido && 'text-muted italic')}>{ref.nome}</span>
                             {ref.cor && <span className="uppercase text-accent-text"> · {ref.cor}</span>}
                           </div>

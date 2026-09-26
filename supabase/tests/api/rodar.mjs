@@ -13,6 +13,8 @@ import { extrairConsultas } from './extrair.mjs'
 import { exercitarLeituras } from './leituras.mjs'
 import { exercitarEscritas } from './escritas.mjs'
 import { exercitarImportacao } from './importacao.mjs'
+import { exercitarDemanda } from './demanda.mjs'
+import { exercitarEtiquetas } from './etiquetas.mjs'
 
 const URL_API = process.env.API_URL
 const SEGREDO = process.env.API_JWT_SECRET
@@ -131,6 +133,38 @@ try {
 }
 falhas.push(...importacao.falhas)
 
+console.log("\n(d) demanda dos pedidos pelo caminho da tela: rpc('demand_summary'), rpc('sales_by_day') e a sugestão entrando no plano")
+let demanda = { falhas: [], feitos: 0 }
+try {
+  const clienteDaEmpresa = (tenant) =>
+    createClient(URL_API, chaveAnon, {
+      ...opcoes,
+      global: { headers: { Authorization: `Bearer ${jwt({ sub: SEED.usuario, role: 'authenticated', aud: 'authenticated', is_anonymous: false, app_metadata: { tenant_id: tenant, role: 'admin' } })}` } },
+    })
+  demanda = await exercitarDemanda({ clientes, seed: SEED, fontes: FONTES, clienteDoTenant: clienteDaEmpresa })
+} catch (e) {
+  const texto = `não consegui importar a camada de dados da web ou rodar a demanda: ${e instanceof Error ? e.message : String(e)}`
+  console.log(`  FALHOU  apps/web/src/data/demanda.ts\n          ${texto}`)
+  demanda.falhas.push({ onde: 'apps/web/src/data/demanda.ts', texto })
+}
+falhas.push(...demanda.falhas)
+
+console.log("\n(e) tamanhos de etiqueta pelo caminho da tela: label_sizes, rpc('save_label_size'), rpc('delete_label_size') e o tamanho no perfil")
+let etiquetas = { falhas: [], feitos: 0 }
+try {
+  const clienteDaEmpresa = (tenant) =>
+    createClient(URL_API, chaveAnon, {
+      ...opcoes,
+      global: { headers: { Authorization: `Bearer ${jwt({ sub: SEED.usuario, role: 'authenticated', aud: 'authenticated', is_anonymous: false, app_metadata: { tenant_id: tenant, role: 'admin' } })}` } },
+    })
+  etiquetas = await exercitarEtiquetas({ clientes, seed: SEED, fontes: FONTES, clienteDoTenant: clienteDaEmpresa })
+} catch (e) {
+  const texto = `não consegui importar a camada de dados da web ou rodar as etiquetas: ${e instanceof Error ? e.message : String(e)}`
+  console.log(`  FALHOU  apps/web/src/data/tamanhosEtiqueta.ts\n          ${texto}`)
+  etiquetas.falhas.push({ onde: 'apps/web/src/data/tamanhosEtiqueta.ts', texto })
+}
+falhas.push(...etiquetas.falhas)
+
 console.log('\nresumo')
 console.log(`  selects exercitados: ${consultas.length} (${leituras.requisicoes} requisições: service_role + authenticated)`)
 console.log(`  selects pulados por serem dinâmicos: ${puladas.length}`)
@@ -140,6 +174,8 @@ console.log(`  escritas diretas da web e do worker achadas no código: ${escrita
 console.log(`  métodos do Db exercitados em (b): ${escritasDb.feitos}`)
 for (const s of escritasDb.semPasso) console.log(`    - fora de (b): ${s}`)
 console.log(`  passos da importação do ES em (c): ${importacao.feitos}`)
+console.log(`  passos da demanda em (d): ${demanda.feitos}`)
+console.log(`  passos dos tamanhos de etiqueta em (e): ${etiquetas.feitos}`)
 
 if (falhas.length > 0) {
   console.log(`\napi: ${falhas.length} falha(s)`)
