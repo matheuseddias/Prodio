@@ -142,11 +142,27 @@ export interface LinhaResultado {
   mensagem?: string
 }
 
+/**
+ * Uso real do Prodio no tenant: os dois sinais da trava do limpar_exemplo.sql que dizem que a integração está
+ * no ar — conector que não está desconectado e pedido que não é do exemplo (external_id fora de 'seed:'). Com
+ * uso real, a limpeza do exemplo é a seletiva (limpar_so_exemplo.sql), que mantém a integração e os pedidos.
+ */
+export interface UsoRealImportacao {
+  conectoresLigados: number
+  pedidosReais: number
+}
+
 export interface ResultadoImportacao {
   simulacao: boolean
   exemplo: { produtos: number; insumos: number; fornecedores: number }
+  usoReal: UsoRealImportacao
   contagens: Record<EntidadeImportacao, ContagemResultado>
   linhas: LinhaResultado[]
+  /**
+   * Itens de pedido sem produto que passam a apontar para um produto (pelo apelido ou pelo SKU, com a
+   * regra do robô) depois de gravar produtos e apelidos. Na simulação é o que a gravação religaria.
+   */
+  itensPedidoReligados: number
 }
 
 export interface LinhaPrevia {
@@ -168,5 +184,7 @@ export interface PreviaImportacao {
   contagens: Record<EntidadeImportacao, ContagemPrevia>
   bloqueios: string[]
   totalGravacoes: number
+  /** Itens de pedido que a gravação religa (ResultadoImportacao.itensPedidoReligados). Também é mudança a gravar. */
+  itensPedidoReligados: number
   podeGravar: boolean
 }

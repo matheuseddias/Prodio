@@ -2,7 +2,8 @@
 -- Use antes de importar os dados reais (a importação do ES recusa gravar enquanto houver exemplo).
 -- ATENÇÃO: apaga TUDO do tenant 'eddias' — conectores, pedidos, OCs, NF-e, etiquetas, bipes, ledger e cadastros —,
 -- não só o exemplo. Por isso a trava abaixo para o script se encontrar sinal de uso real (inclusive cadastro que
--- não é do exemplo, como o que a importação do ES grava) e mostra as contagens.
+-- não é do exemplo, como o que a importação do ES grava) e mostra as contagens. Com conector ligado ou pedido real, o
+-- caminho é limpar_so_exemplo.sql (apaga só o exemplo e mantém a integração e os pedidos); a trava diz isso.
 -- Para apagar mesmo assim, ponha esta linha no começo da MESMA execução do SQL Editor:
 --   set prodio.limpar_mesmo_assim = 'sim';
 
@@ -33,8 +34,13 @@ begin
         and coalesce(idempotency_key, '') not like 'seed:%'
         and coalesce(ref_id::text, '') not like '0e000000-%' and coalesce(ref_id::text, '') not like '0b000000-%'), 0)))
     into v_sinais;
+  -- A mensagem sempre aponta o limpar_so_exemplo.sql (apaga só o exemplo). Com conector ligado ou pedido importado
+  -- ela nem oferece a confirmação: forçar aqui apagaria a integração e os pedidos reais.
   if v_sinais <> '{}'::jsonb and coalesce(current_setting('prodio.limpar_mesmo_assim', true), '') <> 'sim' then
-    raise exception 'o Prodio já tem uso real no tenant eddias: %. Este script apagaria tudo isso junto com o exemplo; nada foi apagado. Para apagar mesmo assim, rode antes, na mesma execução: set prodio.limpar_mesmo_assim = ''sim'';', v_sinais;
+    if v_sinais ? 'conectores ligados' or v_sinais ? 'pedidos importados' then
+      raise exception 'o Prodio já tem uso real no tenant eddias: %. Este script apagaria tudo isso junto com o exemplo, inclusive a integração e os pedidos; nada foi apagado. Não force este script: rode limpar_so_exemplo.sql, que apaga só o exemplo e mantém conectores, credenciais, o cursor do robô e os pedidos.', v_sinais;
+    end if;
+    raise exception 'o Prodio já tem uso real no tenant eddias: %. Este script apagaria tudo isso junto com o exemplo; nada foi apagado. Para tirar só o exemplo e manter o resto, rode limpar_so_exemplo.sql. Para apagar tudo mesmo assim, rode antes, na mesma execução: set prodio.limpar_mesmo_assim = ''sim'';', v_sinais;
   end if;
 
   delete from public.notifications where tenant_id = t;

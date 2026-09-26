@@ -10,7 +10,14 @@ import { novosMapas, type Ctx } from './supabaseCtx'
 const TENANT = '11111111-1111-1111-1111-111111111111'
 const contagens = () =>
   Object.fromEntries(['fornecedor', 'insumo', 'produto', 'apelido', 'vinculo', 'ficha'].map((e) => [e, { novos: 1, atualizados: 0, iguais: 0, problemas: 0 }])) as ResultadoImportacao['contagens']
-const resposta = (simulacao: boolean) => ({ simulacao, exemplo: { produtos: 0, insumos: 0, fornecedores: 0 }, contagens: contagens(), linhas: [{ entidade: 'produto', chave: 'ED900001', situacao: 'novo' }] })
+const resposta = (simulacao: boolean) => ({
+  simulacao,
+  exemplo: { produtos: 0, insumos: 0, fornecedores: 0 },
+  uso_real: { conectores_ligados: 1, pedidos_reais: 40 },
+  contagens: contagens(),
+  linhas: [{ entidade: 'produto', chave: 'ED900001', situacao: 'novo' }],
+  itens_pedido_religados: 12,
+})
 
 /** Cliente falso: guarda as chamadas de rpc e devolve o que o teste mandar. */
 function ctxFalso(responder: (args: Record<string, unknown>) => { data: unknown; error: unknown }) {
@@ -34,6 +41,8 @@ describe('importarCatalogo (SupabaseRepo)', () => {
     expect(chamadas).toEqual([{ nome: 'import_catalog', args: { p_tenant_id: TENANT, p_payload: payload, p_dry_run: true } }])
     expect(r.simulacao).toBe(true)
     expect(r.linhas).toEqual([{ entidade: 'produto', chave: 'ED900001', situacao: 'novo' }])
+    expect(r.itensPedidoReligados).toBe(12)
+    expect(r.usoReal).toEqual({ conectoresLigados: 1, pedidosReais: 40 })
     await importarCatalogo(ctx, payload, false)
     expect(chamadas[1].args.p_dry_run).toBe(false)
   })
@@ -50,6 +59,10 @@ describe('importarCatalogo (SupabaseRepo)', () => {
 
   it.each([
     [{ code: '55000', message: 'remova os dados de exemplo antes de importar (supabase/dist/limpar_exemplo.sql)' }, 'remova os dados de exemplo antes de importar (supabase/dist/limpar_exemplo.sql)'],
+    [
+      { code: '55000', message: 'remova os dados de exemplo antes de importar: o Prodio já tem conector ligado ou pedido real, então rode supabase/dist/limpar_so_exemplo.sql (limpar_exemplo.sql apagaria a integração e os pedidos)' },
+      'rode supabase/dist/limpar_so_exemplo.sql',
+    ],
     [{ code: '42501', message: 'permission denied' }, 'Sem permissão para esta operação.'],
     [{ code: '57014', message: 'canceling statement due to statement timeout' }, 'O banco demorou demais e cancelou a operação: nada foi gravado. Tente de novo.'],
     [{ code: '22023', message: 'payload inválido: chave desconhecida usuarios' }, 'payload inválido: chave desconhecida usuarios'],

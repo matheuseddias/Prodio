@@ -15,10 +15,14 @@ import {
   csvPrevia,
   familiasSemPerfil,
   filtrarLinhas,
+  instrucoesExemplo,
   lerTextoBackup,
   mudouDesdeAPrevia,
+  origemDosPedidos,
   resumoContagem,
+  rotuloImportar,
   textoConfirmacao,
+  textoItensReligados,
 } from './importarESLogica'
 
 const vazio = () => ({ suppliers: [], materials: [], products: [], boms: [], vinculos: [] })
@@ -147,6 +151,63 @@ describe('confirmação e resultado', () => {
     const comCuringa = familiasSemPerfil(skus, products, [{ familia: '*', prefixo: 'XX', tipos: ['produto'], unidadesPorCaixa: 1 }])
     expect(comCuringa.every((f) => f.prefixo === 'XX')).toBe(true)
     expect(familiasSemPerfil(['OUTRO'], products, [])).toEqual([])
+  })
+})
+
+describe('itens de pedido religados', () => {
+  it('origem dos pedidos: o único conector ligado dá o nome; nenhum ou vários, texto genérico', () => {
+    expect(origemDosPedidos([{ plataforma: 'baselinker', status: 'conectado' }, { plataforma: 'bling', status: 'desconectado' }])).toBe('da Base')
+    expect(origemDosPedidos([{ plataforma: 'baselinker', status: 'erro' }])).toBe('da Base')
+    expect(origemDosPedidos([{ plataforma: 'bling', status: 'conectado' }])).toBe('do Bling')
+    expect(origemDosPedidos([{ plataforma: 'baselinker', status: 'conectado' }, { plataforma: 'tiny', status: 'conectado' }])).toBe('dos conectores')
+    expect(origemDosPedidos([{ plataforma: 'baselinker', status: 'desconectado' }])).toBe('dos conectores')
+  })
+
+  it('texto da prévia e do resultado, no singular e no plural; zero não aparece', () => {
+    expect(textoItensReligados(37, 'da Base')).toBe('37 itens de pedido da Base passam a apontar para produtos importados.')
+    expect(textoItensReligados(1, 'da Base')).toBe('1 item de pedido da Base passa a apontar para um produto importado.')
+    expect(textoItensReligados(1200, 'dos conectores')).toBe('1.200 itens de pedido dos conectores passam a apontar para produtos importados.')
+    expect(textoItensReligados(0, 'da Base')).toBeUndefined()
+  })
+
+  it('a confirmação e o botão contam os itens religados', () => {
+    const plano = planejar()
+    const previa = juntarPrevia(plano, { ...importarEmMemoria(vazio(), plano.payload, ops()).resultado, itensPedidoReligados: 3 })
+    expect(textoConfirmacao(previa, 'da Base')).toBe(
+      'Vão entrar 28 novos e 0 atualizações. 3 itens de pedido da Base passam a apontar para produtos importados. Nada é apagado e o que não está no arquivo fica como está. Reimportar o mesmo arquivo não duplica.',
+    )
+    expect(rotuloImportar(previa)).toBe('Importar 28 alterações')
+    expect(rotuloImportar({ totalGravacoes: 0, itensPedidoReligados: 3 })).toBe('Religar 3 itens de pedido')
+    expect(rotuloImportar({ totalGravacoes: 1, itensPedidoReligados: 0 })).toBe('Importar 1 alteração')
+    expect(rotuloImportar(null)).toBe('Importar 0 alterações')
+  })
+})
+
+describe('dados de exemplo: qual limpeza rodar', () => {
+  const exemplo = { produtos: 11, insumos: 13, fornecedores: 5 }
+
+  it('sem conector ligado nem pedido real: limpar_exemplo.sql', () => {
+    const i = instrucoesExemplo({ exemplo, usoReal: { conectoresLigados: 0, pedidosReais: 0 } })
+    expect(i.titulo).toBe('Há dados de exemplo no Prodio (11 produtos, 13 insumos, 5 fornecedores). Eles precisam sair antes da importação.')
+    expect(i.script).toBe('supabase/dist/limpar_exemplo.sql')
+    expect(i.passos.join(' ')).toContain('cole o conteúdo de supabase/dist/limpar_exemplo.sql e rode')
+  })
+
+  it('com conector ligado ou pedido real: limpar_so_exemplo.sql, e o aviso de não usar o outro', () => {
+    const i = instrucoesExemplo({ exemplo, usoReal: { conectoresLigados: 1, pedidosReais: 812 } })
+    expect(i.script).toBe('supabase/dist/limpar_so_exemplo.sql')
+    const texto = i.passos.join(' ')
+    expect(texto).toContain('1 conector ligado, 812 pedidos reais')
+    expect(texto).toContain('cole o conteúdo de supabase/dist/limpar_so_exemplo.sql e rode')
+    expect(texto).toContain('Não use o limpar_exemplo.sql')
+    // O limpar_exemplo.sql mantém a empresa, os usuários e os aparelhos: o que ele apaga são os dados.
+    expect(texto).not.toContain('empresa inteira')
+    expect(texto).toContain('ele apaga todos os dados da empresa, não só o exemplo')
+    // A trava do seletivo também para em De-Para de SKU feito na tela do conector num produto do exemplo.
+    expect(texto).toContain('De-Para de SKU')
+    expect(texto).toContain('religa pelo apelido e pelo SKU')
+    expect(texto).not.toContain('cole o conteúdo de supabase/dist/limpar_exemplo.sql')
+    expect(instrucoesExemplo({ exemplo, usoReal: { conectoresLigados: 0, pedidosReais: 1 } }).script).toBe('supabase/dist/limpar_so_exemplo.sql')
   })
 })
 

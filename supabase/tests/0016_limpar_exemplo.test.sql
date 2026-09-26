@@ -1,5 +1,6 @@
 -- Trava do limpar_exemplo.sql (supabase/limpar_exemplo.sql, copiado para dist/ pelo build.sh): o script apaga TUDO do tenant eddias, então
--- só roda sozinho quando o que existe é o exemplo do seed. Com sinal de uso real ele para sem apagar nada;
+-- só roda sozinho quando o que existe é o exemplo do seed. Com sinal de uso real ele para sem apagar nada e indica o
+-- limpar_so_exemplo.sql (com conector ligado ou pedido real, sem oferecer a confirmação);
 -- `set prodio.limpar_mesmo_assim = 'sim'` passa por cima. O arquivo é executado como está.
 \set limpar `cat limpar_exemplo.sql`
 \o /dev/null
@@ -55,6 +56,16 @@ begin
         raise exception 'a trava não parou o script com %', sinal.nome;
       exception when raise_exception then
         if sqlerrm not like '%uso real%' || sinal.nome || '%' then raise exception 'mensagem da trava (%): %', sinal.nome, sqlerrm; end if;
+        -- Sempre indica o script que apaga só o exemplo. Com conector ligado ou pedido importado (a integração está
+        -- no ar), não oferece a confirmação: forçar apagaria a integração e os pedidos.
+        if sqlerrm not like '%rode limpar_so_exemplo.sql%' then raise exception 'a trava (%) deveria indicar limpar_so_exemplo.sql: %', sinal.nome, sqlerrm; end if;
+        if sinal.nome in ('pedidos importados', 'conectores ligados') then
+          if sqlerrm not like '%Não force%' or sqlerrm like '%limpar_mesmo_assim%' then
+            raise exception 'com a integração no ar, a trava (%) não deveria oferecer a confirmação: %', sinal.nome, sqlerrm;
+          end if;
+        elsif sqlerrm not like '%set prodio.limpar_mesmo_assim = ''sim''%' then
+          raise exception 'sem integração no ar, a trava (%) deveria mostrar a confirmação: %', sinal.nome, sqlerrm;
+        end if;
       end;
       if pg_temp.conta('products') < 11 or pg_temp.conta('materials') < 13 or pg_temp.conta('suppliers') < 5 then raise exception 'a trava deixou apagar (%)', sinal.nome; end if;
       raise exception using errcode = 'PRD02'; -- desfaz o sinal antes do próximo

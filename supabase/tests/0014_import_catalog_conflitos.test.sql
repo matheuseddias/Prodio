@@ -1,7 +1,8 @@
 -- Importação do ES: conflitos previstos viram linha-problema e a importação segue (a simulação mostra o
 -- mesmo que a gravação faria): fornecedor e insumo excluídos, apelido de outro produto, SKU que é apelido,
 -- unidade de consumo trocada, código do fornecedor em colisão, ciclo com ficha que já existe no Prodio.
--- E a trava dos dados de exemplo: no tenant do seed a simulação avisa e a gravação dá 55000.
+-- E a trava dos dados de exemplo: no tenant do seed a simulação avisa e a gravação dá 55000, apontando o script de
+-- limpeza certo (limpar_so_exemplo.sql quando já há conector ligado ou pedido real).
 \set payload `cat ../packages/core/src/fixtures/payload-es-sintetico.json`
 \o /dev/null
 begin;
@@ -133,14 +134,33 @@ declare r jsonb;
 begin
   r := public.import_catalog('11111111-1111-1111-1111-111111111111', current_setting('test.payload')::jsonb, true);
   if r -> 'exemplo' <> '{"produtos": 11, "insumos": 13, "fornecedores": 5}' then raise exception 'exemplo: %', r -> 'exemplo'; end if;
+  if r -> 'uso_real' <> '{"conectores_ligados": 0, "pedidos_reais": 0}' then raise exception 'uso_real do seed: %', r -> 'uso_real'; end if;
+  -- Sem uso real, o caminho é o limpar_exemplo.sql.
   begin
     perform public.import_catalog('11111111-1111-1111-1111-111111111111', current_setting('test.payload')::jsonb, false);
     raise exception 'gravar com dados de exemplo deveria falhar';
-  exception when object_not_in_prerequisite_state then null;
+  exception when object_not_in_prerequisite_state then
+    if sqlerrm not like '%limpar_exemplo.sql%' or sqlerrm like '%limpar_so_exemplo%' then raise exception 'mensagem sem uso real: %', sqlerrm; end if;
   end;
   -- p_dry_run nulo (PostgREST manda null quando o cliente manda null) é simulação: não grava nem fura a trava.
   r := public.import_catalog('11111111-1111-1111-1111-111111111111', current_setting('test.payload')::jsonb, null);
   if (r ->> 'simulacao') is distinct from 'true' then raise exception 'p_dry_run nulo deveria simular: %', r ->> 'simulacao'; end if;
+end $$;
+select auth.test_logout();
+-- Com conector ligado (uso real), limpar_exemplo.sql apagaria a integração: a recusa aponta o limpar_so_exemplo.sql.
+update public.connectors set status = 'conectado' where id = '0d000000-0000-0000-0000-000000000001';
+select auth.test_login('22222222-2222-2222-2222-222222222222');
+do $$
+declare r jsonb;
+begin
+  r := public.import_catalog('11111111-1111-1111-1111-111111111111', current_setting('test.payload')::jsonb, true);
+  if r -> 'uso_real' ->> 'conectores_ligados' <> '1' then raise exception 'uso_real com conector ligado: %', r -> 'uso_real'; end if;
+  begin
+    perform public.import_catalog('11111111-1111-1111-1111-111111111111', current_setting('test.payload')::jsonb, false);
+    raise exception 'gravar com dados de exemplo deveria falhar';
+  exception when object_not_in_prerequisite_state then
+    if sqlerrm not like '%limpar_so_exemplo.sql%' then raise exception 'mensagem com uso real: %', sqlerrm; end if;
+  end;
 end $$;
 select auth.test_logout();
 do $$ begin

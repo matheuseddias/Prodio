@@ -221,4 +221,72 @@ begin
 end $$;
 select auth.test_logout();
 
+-- ---------------------------------------------------------------------------
+-- 7. Itens de pedido sem produto: a importação liga pela regra do robô (worker_upsert_orders): apelido primeiro,
+--    depois SKU de produto não excluído, comparação exata (sem trim nem maiúsculas). Só mexe em product_id nulo,
+--    conta também na simulação (sem gravar) e reimportar religa 0. Outro tenant não é tocado.
+-- ---------------------------------------------------------------------------
+insert into public.connectors (id, tenant_id, plataforma, nome, status) values
+  ('13000000-0000-0000-0000-0000000000c1', :'tenant_a', 'baselinker', 'Base', 'conectado'),
+  ('13000000-0000-0000-0000-0000000000c2', :'tenant_b', 'baselinker', 'Base', 'conectado');
+insert into public.products (id, tenant_id, sku, nome, deleted_at) values
+  ('13000000-0000-0000-0000-0000000000a1', :'tenant_a', 'ED9DEL', 'Excluído', now()),
+  ('13000000-0000-0000-0000-0000000000a2', :'tenant_a', 'DUPLA', 'Dono do SKU', null),
+  ('13000000-0000-0000-0000-0000000000a3', :'tenant_a', 'OUTRO13', 'Dono do apelido', null);
+insert into public.sku_aliases (tenant_id, product_id, sku_externo) values (:'tenant_a', '13000000-0000-0000-0000-0000000000a3', 'DUPLA');
+insert into public.orders (id, tenant_id, connector_id, external_id, significado) values
+  ('13000000-0000-0000-0000-0000000000b1', :'tenant_a', '13000000-0000-0000-0000-0000000000c1', 'p1', 'demanda'),
+  ('13000000-0000-0000-0000-0000000000b2', :'tenant_a', '13000000-0000-0000-0000-0000000000c1', 'p2', 'demanda'),
+  ('13000000-0000-0000-0000-0000000000b3', :'tenant_b', '13000000-0000-0000-0000-0000000000c2', 'p1', 'demanda');
+insert into public.order_items (tenant_id, order_id, sku_externo, product_id, quantidade)
+select :'tenant_a', '13000000-0000-0000-0000-0000000000b1', x, null, 1
+  from unnest(array['ED900001', 'TM900002', 'DUPLA', 'ed900001', ' ED900001', 'ED900001 ', 'ED9DEL', 'ZZZ', null]) x;
+insert into public.order_items (tenant_id, order_id, sku_externo, product_id, quantidade) values
+  (:'tenant_a', '13000000-0000-0000-0000-0000000000b2', 'ED900002', '13000000-0000-0000-0000-0000000000a2', 1),
+  (:'tenant_b', '13000000-0000-0000-0000-0000000000b3', 'ED900001', null, 1);
+select auth.test_login('00000000-0000-0000-0000-00000000130a');
+select public.import_catalog(:'tenant_a', :'payload'::jsonb, true) as r_sim \gset
+select public.import_catalog(:'tenant_a', :'payload'::jsonb, false) as r \gset
+select public.import_catalog(:'tenant_a', :'payload'::jsonb, false) as r2 \gset
+select auth.test_logout();
+select set_config('test.r', :'r', false), set_config('test.r_sim', :'r_sim', false), set_config('test.r2', :'r2', false);
+do $$
+declare
+  t uuid := current_setting('test.tenant_a')::uuid;
+  sim jsonb := current_setting('test.r_sim')::jsonb;
+  r jsonb := current_setting('test.r')::jsonb;
+  esperado jsonb := jsonb_build_object('ED900001', (select id from public.products where tenant_id = t and sku = 'ED900001'),
+    'TM900002', (select id from public.products where tenant_id = t and sku = 'ED900001'), 'DUPLA', '13000000-0000-0000-0000-0000000000a3');
+  atual jsonb;
+begin
+  if sim -> 'itens_pedido_religados' <> '3' or r -> 'itens_pedido_religados' <> '3' then
+    raise exception 'religados: simulação %, gravação %', sim -> 'itens_pedido_religados', r -> 'itens_pedido_religados';
+  end if;
+  if r -> 'uso_real' <> '{"conectores_ligados": 1, "pedidos_reais": 2}' then raise exception 'uso_real: %', r -> 'uso_real'; end if;
+  if current_setting('test.r2')::jsonb -> 'itens_pedido_religados' <> '0' then raise exception 'reimportar deveria religar 0'; end if;
+  select jsonb_object_agg(sku_externo, product_id) filter (where product_id is not null) into atual
+    from public.order_items where order_id = '13000000-0000-0000-0000-0000000000b1';
+  if atual <> esperado then raise exception 'religação: % (esperado %)', atual, esperado; end if;
+  if (select product_id from public.order_items where order_id = '13000000-0000-0000-0000-0000000000b2') <> '13000000-0000-0000-0000-0000000000a2' then
+    raise exception 'item já ligado não pode mudar de produto';
+  end if;
+  if (select product_id from public.order_items where order_id = '13000000-0000-0000-0000-0000000000b3') is not null then raise exception 'outro tenant foi religado'; end if;
+  if (select depois ->> 'itens_pedido_religados' from public.audit_log where tenant_id = t and entidade = 'import_catalog' order by id desc limit 1) <> '3' then
+    raise exception 'resumo da importação no audit_log sem os itens religados';
+  end if;
+  perform set_config('test.esperado', atual::text, false);
+end $$;
+-- O robô, regravando o mesmo pedido, chega aos mesmos produtos: a regra é a mesma.
+select auth.test_login('00000000-0000-0000-0000-00000000130f', 'service_role');
+select public.worker_upsert_orders(:'tenant_a', '13000000-0000-0000-0000-0000000000c1', jsonb_build_array(jsonb_build_object('external_id', 'p1',
+  'itens', (select jsonb_agg(jsonb_build_object('sku_externo', x, 'quantidade', 1))
+              from unnest(array['ED900001', 'TM900002', 'DUPLA', 'ed900001', ' ED900001', 'ED900001 ', 'ED9DEL', 'ZZZ', null]) x))));
+select auth.test_logout();
+do $$ begin
+  if (select jsonb_object_agg(sku_externo, product_id) filter (where product_id is not null) from public.order_items
+       where order_id = '13000000-0000-0000-0000-0000000000b1') <> current_setting('test.esperado')::jsonb then
+    raise exception 'a importação e o robô casam diferente';
+  end if;
+end $$;
+
 rollback;

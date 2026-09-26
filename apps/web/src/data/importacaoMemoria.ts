@@ -371,7 +371,15 @@ export function importarEmMemoria(atual: CatalogoMemoria, payload: PayloadImport
   const vinc = vinculos(meio, payload.vinculos ?? [], ins.bloqueados, s)
   const fic = fichas(meio, payload.fichas ?? [], ins.bloqueados, prod.bloqueados, s, o)
   return {
-    resultado: { simulacao: false, exemplo: { produtos: 0, insumos: 0, fornecedores: 0 }, contagens: s.contagens, linhas: s.linhas },
+    // Sem pedidos de verdade no modo memória: nada a religar e nenhum uso real.
+    resultado: {
+      simulacao: false,
+      exemplo: { produtos: 0, insumos: 0, fornecedores: 0 },
+      usoReal: { conectoresLigados: 0, pedidosReais: 0 },
+      contagens: s.contagens,
+      linhas: s.linhas,
+      itensPedidoReligados: 0,
+    },
     catalogo: { suppliers, materials: ins.materials, products: fic.products, boms: fic.boms, vinculos: vinc },
   }
 }

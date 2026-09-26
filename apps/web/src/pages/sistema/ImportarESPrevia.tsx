@@ -2,12 +2,12 @@
 // banco (o que a gravação faria no estado atual, sem gravar nada). O botão Importar só liga com uma simulação
 // do payload atual e sem bloqueio.
 import type { PlanoImportacaoES, PreviaImportacao, ResultadoImportacao } from '@prodio/core/importacaoEs'
-import { AlertTriangle, CheckCircle2, Download, FileJson, Loader2, RefreshCw } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Download, FileJson, Link2, Loader2, RefreshCw } from 'lucide-react'
 import { dataBR, diaISO, num } from '../../domain/format'
 import { Badge, Button, Card, Stat } from '../../ui'
 import ImportarESCnpj from './ImportarESCnpj'
 import ImportarESTabela from './ImportarESTabela'
-import { ENTIDADES, csvPrevia, resumoContagem } from './importarESLogica'
+import { ENTIDADES, csvPrevia, instrucoesExemplo, resumoContagem, rotuloImportar, textoItensReligados } from './importarESLogica'
 
 const SENTIDO: Record<PlanoImportacaoES['origem']['sentidoDepara'], string> = {
   'TM→ED': 'TM → ED (o atual)',
@@ -41,6 +41,8 @@ export interface PropsPrevia {
   erroSimulacao: string | null
   demonstracao: boolean
   admin: boolean
+  /** "da Base", "dos conectores"…: de onde vêm os pedidos que a importação religa (origemDosPedidos). */
+  origemPedidos: string
   semCnpj: { nome: string; insumos: number }[]
   cnpjDigitado: Record<string, string>
   cnpjPendente: boolean
@@ -51,22 +53,21 @@ export interface PropsPrevia {
   onTrocarArquivo: () => void
 }
 
-function Exemplo({ ex, onSimular, simulando }: { ex: ResultadoImportacao['exemplo']; onSimular: () => void; simulando: boolean }) {
+function Exemplo({ r, onSimular, simulando }: { r: Pick<ResultadoImportacao, 'exemplo' | 'usoReal'>; onSimular: () => void; simulando: boolean }) {
+  const { titulo, script, passos } = instrucoesExemplo(r)
   return (
     <Card className="border-danger/40">
       <div className="flex gap-3">
         <AlertTriangle size={20} className="mt-0.5 shrink-0 text-danger" />
         <div className="min-w-0 space-y-2 text-sm">
-          <p className="font-semibold text-danger">
-            Há dados de exemplo no Prodio ({num(ex.produtos)} produtos, {num(ex.insumos)} insumos, {num(ex.fornecedores)} fornecedores). Eles precisam sair antes da importação.
+          <p className="font-semibold text-danger">{titulo}</p>
+          <p>
+            Script a rodar: <span className="break-all font-mono text-[12px]">{script}</span>
           </p>
           <ol className="list-decimal space-y-1 pl-5 text-muted">
-            <li>Confirme que o Prodio ainda não tem uso de verdade: conector puxando pedidos, OC emitida, NF-e recebida ou etiqueta bipada.</li>
-            <li>
-              No painel do Supabase, abra o SQL Editor, cole o conteúdo de <span className="font-mono text-[12px]">supabase/dist/limpar_exemplo.sql</span> e rode.
-            </li>
-            <li>Se o script parar e mostrar contagens, é porque achou uso de verdade: não force, fale com o suporte do Prodio.</li>
-            <li>Volte aqui e clique em "Simular de novo". A prévia tem de mostrar zero dados de exemplo.</li>
+            {passos.map((passo) => (
+              <li key={passo}>{passo}</li>
+            ))}
           </ol>
           <Button size="sm" onClick={onSimular} disabled={simulando}>
             <RefreshCw size={14} /> Simular de novo
@@ -81,7 +82,8 @@ export default function ImportarESPrevia(p: PropsPrevia) {
   const { plano, previa, simulacao } = p
   const exemplo = simulacao?.exemplo
   const temExemplo = !!exemplo && exemplo.produtos + exemplo.insumos + exemplo.fornecedores > 0
-  const jaIgual = !!previa && previa.totalGravacoes === 0
+  const jaIgual = !!previa && previa.totalGravacoes === 0 && previa.itensPedidoReligados === 0
+  const religados = previa ? textoItensReligados(previa.itensPedidoReligados, p.origemPedidos) : undefined
   const outros = (previa?.bloqueios ?? []).filter((b) => !b.startsWith('Há dados de exemplo') && !b.startsWith('Nenhuma alteração'))
   const motivoDesligado = !p.admin
     ? 'Só o administrador da empresa importa.'
@@ -145,7 +147,7 @@ export default function ImportarESPrevia(p: PropsPrevia) {
           </Button>
         </Card>
       )}
-      {temExemplo && exemplo && <Exemplo ex={exemplo} onSimular={p.onSimular} simulando={p.simulando} />}
+      {temExemplo && simulacao && <Exemplo r={simulacao} onSimular={p.onSimular} simulando={p.simulando} />}
       {outros.map((b) => (
         <Card key={b} className="border-danger/40">
           <p className="text-sm font-semibold text-danger">{b}</p>
@@ -179,6 +181,11 @@ export default function ImportarESPrevia(p: PropsPrevia) {
         })}
       </div>
       <p className="-mt-2 text-[12px] text-muted">O número grande é o que vai ser gravado (novos + atualizados).</p>
+      {religados && (
+        <div className="flex gap-2 rounded-lg border border-border bg-surface-2 p-3 text-sm">
+          <Link2 size={16} className="mt-0.5 shrink-0 text-accent" /> {religados}
+        </div>
+      )}
 
       {p.semCnpj.length > 0 && (
         <ImportarESCnpj itens={p.semCnpj} digitado={p.cnpjDigitado} pendente={p.cnpjPendente} onChange={p.onCnpj} onAtualizar={p.onAtualizarPrevia} ocupado={p.simulando} />
@@ -211,7 +218,7 @@ export default function ImportarESPrevia(p: PropsPrevia) {
         </Button>
         <div className="flex flex-col items-stretch gap-1 sm:items-end">
           <Button variant="primary" size="lg" onClick={p.onImportar} disabled={!!motivoDesligado}>
-            Importar {num(previa?.totalGravacoes ?? 0)} {previa?.totalGravacoes === 1 ? 'alteração' : 'alterações'}
+            {rotuloImportar(previa)}
           </Button>
           {motivoDesligado && <span className="text-[12px] text-muted">{motivoDesligado}</span>}
         </div>

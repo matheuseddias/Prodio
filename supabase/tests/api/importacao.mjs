@@ -1,12 +1,14 @@
 // Parte (c): a importação do ES pelo caminho real da tela — o core (packages/core/src/importacaoEs.ts) planeja o
 // backup sintético e o cliente autenticado chama rpc('import_catalog') no PostgREST, como a web faz. Confere o
 // formato da resposta com o lerResultadoImportacao do próprio core (o contrato entre banco e tela), a simulação,
-// a gravação, a reimportação sem mudanças, a trava dos dados de exemplo (55000) e o payload inválido (22023).
+// a gravação, a reimportação sem mudanças, os itens de pedido sem produto religados pela importação, a trava dos
+// dados de exemplo (55000, apontando o script de limpeza certo) e o payload inválido (22023).
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const TENANT = '0a1a0000-0000-4000-8000-00000000c0de'
+const CONECTOR = '0a1a0000-0000-4000-8000-00000000c0d1'
 const UNIDADES = [['un', 'unidade'], ['m', 'comprimento'], ['m2', 'area'], ['kg', 'peso'], ['g', 'peso'], ['cx', 'unidade'], ['rl', 'unidade'], ['ct', 'unidade']]
 
 function exigir(condicao, oque) {
@@ -47,22 +49,42 @@ export async function exercitarImportacao({ clientes, seed, fontes, clienteDoTen
     const u = await sr.from('units').insert(UNIDADES.map(([code, kind]) => ({ tenant_id: TENANT, code, nome: code, kind })))
     exigir(!u.error, `units: ${u.error?.message}`)
   })
+  // Pedido que o robô gravou antes do cadastro existir: itens sem produto (SKU principal, apelido e um que não casa).
+  await passo('pedido real com itens sem produto (service role: conector, pedido e itens)', async () => {
+    const c = await sr.from('connectors').insert({ id: CONECTOR, tenant_id: TENANT, plataforma: 'baselinker', nome: 'Base', status: 'conectado' })
+    exigir(!c.error, `connectors: ${c.error?.message}`)
+    const o = await sr.from('orders').insert({ tenant_id: TENANT, connector_id: CONECTOR, external_id: '9001', significado: 'demanda' }).select('id').single()
+    exigir(!o.error, `orders: ${o.error?.message}`)
+    const i = await sr.from('order_items').insert(['ED900001', 'TM900002', 'ZZZ'].map((sku) => ({ tenant_id: TENANT, order_id: o.data.id, sku_externo: sku, quantidade: 1 })))
+    exigir(!i.error, `order_items: ${i.error?.message}`)
+  })
   await passo("rpc('import_catalog') simula: formato do contrato, nada gravado", async () => {
     const r = await resultado(TENANT, true)
     exigir(r.simulacao === true, 'simulacao deveria ser true')
     const previa = core.juntarPrevia(plano, r)
     exigir(previa.podeGravar && previa.totalGravacoes === 28, `prévia: ${JSON.stringify(previa.contagens)}`)
+    exigir(r.itensPedidoReligados === 2 && previa.itensPedidoReligados === 2, `itens religados na simulação: ${r.itensPedidoReligados}`)
+    exigir(r.usoReal.conectoresLigados === 1 && r.usoReal.pedidosReais === 1, `uso real: ${JSON.stringify(r.usoReal)}`)
     const c = await sr.from('products').select('id', { count: 'exact', head: true }).eq('tenant_id', TENANT)
     exigir(c.count === 0, `a simulação gravou ${c.count} produtos`)
+    const i = await sr.from('order_items').select('id', { count: 'exact', head: true }).eq('tenant_id', TENANT).not('product_id', 'is', null)
+    exigir(i.count === 0, `a simulação religou ${i.count} itens`)
   })
   await passo("rpc('import_catalog') grava e a reimportação não muda nada", async () => {
     const r = await resultado(TENANT, false)
     exigir(r.contagens.ficha.novos === 5 && r.contagens.produto.novos === 5, `gravação: ${JSON.stringify(r.contagens)}`)
+    exigir(r.itensPedidoReligados === 2, `itens religados na gravação: ${r.itensPedidoReligados}`)
+    const itens = await sr.from('order_items').select('sku_externo, product_id').eq('tenant_id', TENANT).order('sku_externo')
+    const produtos = await sr.from('products').select('id, sku').eq('tenant_id', TENANT)
+    exigir(!itens.error && !produtos.error, `leitura dos itens: ${itens.error?.message ?? produtos.error?.message}`)
+    const sku = (id) => produtos.data.find((p) => p.id === id)?.sku ?? null
+    const ligados = itens.data.map((x) => `${x.sku_externo}→${sku(x.product_id)}`).join(' ')
+    exigir(ligados === 'ED900001→ED900001 TM900002→ED900001 ZZZ→null', `itens depois de gravar: ${ligados}`)
     const f = await sr.from('v_bom_active').select('product_sku, component_sku, perda_pct').eq('tenant_id', TENANT)
     exigir(!f.error && f.data.length === 12, `fichas gravadas: ${f.error?.message ?? f.data.length}`)
     exigir(f.data.every((l) => Number(l.perda_pct) === 0), 'perda_pct deveria ser 0')
     const de_novo = core.juntarPrevia(plano, await resultado(TENANT, false))
-    exigir(de_novo.totalGravacoes === 0 && !de_novo.podeGravar, `reimportação: ${JSON.stringify(de_novo.contagens)}`)
+    exigir(de_novo.totalGravacoes === 0 && de_novo.itensPedidoReligados === 0 && !de_novo.podeGravar, `reimportação: ${JSON.stringify(de_novo.contagens)}`)
   })
   // A camada de dados da web de verdade (apps/web/src/data): o mesmo código que a tela chama, contra o PostgREST.
   const web = {
@@ -103,11 +125,15 @@ export async function exercitarImportacao({ clientes, seed, fontes, clienteDoTen
     const insumos = await web.leituras.lerMaterials(ctxWeb)
     exigir(insumos.length === N + 8 && new Set(insumos.map((x) => x.id)).size === N + 8, `lerMaterials: ${insumos.length} (esperado ${N + 8}, sem repetir)`)
   })
-  await passo('tenant com dados de exemplo: simula com a contagem e recusa a gravação (55000)', async () => {
+  await passo('tenant com dados de exemplo: simula com a contagem e recusa a gravação (55000) apontando o script certo', async () => {
     const r = await resultado(seed.tenant, true)
     exigir(r.exemplo.produtos === 11, `exemplo: ${JSON.stringify(r.exemplo)}`)
+    const previa = core.juntarPrevia(plano, r)
+    const script = core.scriptLimpezaExemplo(r.usoReal)
+    exigir(!previa.podeGravar && previa.bloqueios[0].includes(script), `bloqueio: ${previa.bloqueios[0]}`)
     const g = await rpc(seed.tenant, plano.payload, false)
     exigir(g.error?.code === '55000', `esperado 55000, veio ${g.error?.code ?? 'sucesso'}`)
+    exigir(g.error.message.includes(script.replace('supabase/dist/', '')), `a recusa deveria citar ${script}: ${g.error.message}`)
   })
   await passo('payload com chave desconhecida: 22023', async () => {
     const g = await rpc(TENANT, { ...plano.payload, usuarios: [] }, true)

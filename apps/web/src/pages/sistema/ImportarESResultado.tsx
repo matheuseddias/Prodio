@@ -1,24 +1,26 @@
 // Passo 3 da importação do ES: o que a gravação fez de verdade (contagens do banco), o que ficou de fora,
 // as famílias sem perfil de etiqueta e o lembrete de apagar o arquivo.
 import { juntarPrevia, type PlanoImportacaoES, type ResultadoImportacao } from '@prodio/core/importacaoEs'
-import { AlertTriangle, CheckCircle2, Trash2 } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Link2, Trash2 } from 'lucide-react'
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { num } from '../../domain/format'
 import { useStore } from '../../domain/store'
 import { Badge, Button, Card, Stat, Table, Td, Th } from '../../ui'
 import { nomeDaChave } from './importarESDetalhe'
-import { ENTIDADES, PLURAL, chaveExibida, familiasSemPerfil, mudouDesdeAPrevia, resumoContagem, totais } from './importarESLogica'
+import { ENTIDADES, PLURAL, chaveExibida, familiasSemPerfil, mudouDesdeAPrevia, resumoContagem, textoItensReligados, totais } from './importarESLogica'
 
 export interface PropsResultado {
   plano: PlanoImportacaoES
   simulada: ResultadoImportacao
   gravada: ResultadoImportacao
+  /** "da Base", "dos conectores"…: de onde vêm os pedidos religados (origemDosPedidos). */
+  origemPedidos: string
   onOutroArquivo: () => void
   onPerfis?: () => void
 }
 
-export default function ImportarESResultado({ plano, simulada, gravada, onOutroArquivo, onPerfis }: PropsResultado) {
+export default function ImportarESResultado({ plano, simulada, gravada, origemPedidos, onOutroArquivo, onPerfis }: PropsResultado) {
   const { products, tenant } = useStore()
   const navigate = useNavigate()
   const previa = useMemo(() => juntarPrevia(plano, gravada), [plano, gravada])
@@ -26,6 +28,7 @@ export default function ImportarESResultado({ plano, simulada, gravada, onOutroA
   const t = totais(previa)
   const familias = useMemo(() => familiasSemPerfil(plano.payload.produtos.map((p) => p.sku), products, tenant.perfisEtiqueta), [plano, products, tenant.perfisEtiqueta])
   const mudou = mudouDesdeAPrevia(simulada, gravada)
+  const religados = textoItensReligados(gravada.itensPedidoReligados, origemPedidos)
 
   return (
     <div className="space-y-5">
@@ -39,6 +42,11 @@ export default function ImportarESResultado({ plano, simulada, gravada, onOutroA
           </p>
         </div>
       </div>
+      {religados && (
+        <div className="flex gap-2 rounded-lg border border-border bg-surface-2 p-3 text-sm">
+          <Link2 size={16} className="mt-0.5 shrink-0 text-accent" /> {religados}
+        </div>
+      )}
       {mudou && (
         <div className="flex gap-2 rounded-lg border border-warn/40 bg-warn-soft p-3 text-sm text-warn">
           <AlertTriangle size={16} className="mt-0.5 shrink-0" /> O catálogo mudou desde a prévia (alguém editou o cadastro no meio). Os números abaixo são os da gravação.

@@ -21,7 +21,7 @@ import {
 } from './importacaoEs/tipos'
 
 export * from './importacaoEs/tipos'
-export { chavesDoPayload, juntarPrevia, lerResultadoImportacao } from './importacaoEs/previa'
+export { chavesDoPayload, juntarPrevia, lerResultadoImportacao, scriptLimpezaExemplo, temUsoReal } from './importacaoEs/previa'
 export type { BackupES } from './importacaoEs/ler'
 
 // Produtos do SEED do ES: quando a leitura da tabela falha, o ES cai nesta lista (backup inútil).

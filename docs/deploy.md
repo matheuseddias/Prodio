@@ -9,13 +9,14 @@ bash supabase/build.sh                 # usa matheus@eddias.com.br como admin
 bash supabase/build.sh outro@email.com # ou passe outro e-mail
 ```
 
-Saem três arquivos em `supabase/dist/` (não versionados, são gerados):
+Saem quatro arquivos em `supabase/dist/` (não versionados, são gerados):
 
 | Arquivo | O que faz |
 |---|---|
-| `schema.sql` | As 9 migrations na ordem. Cria tabelas, RLS, funções e views. |
+| `schema.sql` | Todas as migrations na ordem. Cria tabelas, RLS, funções e views. |
 | `dados_eddias.sql` | Cria a empresa Eddias com cadastros de exemplo. Não toca em `auth.users`. |
-| `limpar_exemplo.sql` | Apaga os dados de exemplo — e tudo o mais do tenant `eddias`: conectores, pedidos, OCs, NF-e, etiquetas, bipes, ledger e cadastros —, mantendo empresa, usuários, locais, unidades, perfis de etiqueta, operadores e aparelhos. Se achar sinal de uso real (conector ligado, pedido, OC, NF-e, etiqueta, bipe, movimento de estoque ou produto, insumo ou fornecedor que não são do exemplo — como os que a importação do ES grava), para sem apagar nada e mostra as contagens; para apagar mesmo assim, ponha `set prodio.limpar_mesmo_assim = 'sim';` no começo da mesma execução. A fonte é `supabase/limpar_exemplo.sql`. |
+| `limpar_exemplo.sql` | Apaga os dados de exemplo — e tudo o mais do tenant `eddias`: conectores, pedidos, OCs, NF-e, etiquetas, bipes, ledger e cadastros —, mantendo empresa, usuários, locais, unidades, perfis de etiqueta, operadores e aparelhos. Se achar sinal de uso real (conector ligado, pedido, OC, NF-e, etiqueta, bipe, movimento de estoque ou produto, insumo ou fornecedor que não são do exemplo — como os que a importação do ES grava), para sem apagar nada, mostra as contagens e indica o `limpar_so_exemplo.sql`; com conector ligado ou pedido real a mensagem diz para não forçar (forçar apagaria a integração e os pedidos). Sem integração no ar, para apagar tudo mesmo assim, ponha `set prodio.limpar_mesmo_assim = 'sim';` no começo da mesma execução. A fonte é `supabase/limpar_exemplo.sql`. |
+| `limpar_so_exemplo.sql` | Apaga **só** os dados de exemplo e o que foi criado em cima deles nos testes (etiquetas, bipes, plano do dia, fila de estoque, saldos do hub, inventários e avisos do exemplo), mantendo todos os conectores, credenciais, De-Para de status, `sync_state` e pedidos reais. É o caminho de quem já ligou um conector antes de importar o cadastro. A fonte é `supabase/limpar_so_exemplo.sql`. Detalhes abaixo, em "Tirar os dados de exemplo". |
 
 ## 1. Criar o usuário administrador
 
@@ -52,7 +53,25 @@ Se o usuário do passo 1 não existir, o arquivo interrompe com uma mensagem diz
 
 Os cinco conectores (BaseLinker, Bling, Tiny, Omie, Magis5) nascem **desconectados**, sem credencial e sem último sync. É de propósito: credencial é cifrada com a `CREDENTIALS_KEY` do worker e não pode ser semeada, então um conector semeado como conectado seria uma promessa falsa na tela e uma falha a cada 5 minutos no cron. Quem conecta é você, pela tela, depois do passo 8.
 
-Quando for usar dados reais, rode `limpar_exemplo.sql` e importe os seus pelas telas de cadastro (ou, vindo do Eddias Suprimentos, pela importação do backup do ES: ela recusa gravar enquanto houver dado de exemplo).
+Quando for usar dados reais, tire o exemplo (abaixo) e importe os seus pelas telas de cadastro (ou, vindo do Eddias Suprimentos, pela importação do backup do ES: ela recusa gravar enquanto houver dado de exemplo e a tela diz qual dos dois scripts rodar).
+
+### Tirar os dados de exemplo: `limpar_exemplo.sql` ou `limpar_so_exemplo.sql`
+
+Os dois reconhecem o exemplo pelos ids fixos do seed (produtos `a0…`, insumos `b0…`, fornecedores `c0…`, pedidos `seed:%`, OCs `0c…`, NF-e `0e…` e assim por diante), nunca por nome ou SKU — vários SKUs do exemplo são SKUs reais da Eddias. Rode no SQL Editor do painel (como dono do banco) ou com `psql -v ON_ERROR_STOP=1 -f`. Cada um é um bloco só: ou apaga tudo o que deve, ou nada.
+
+| Situação | Use |
+|---|---|
+| O Prodio ainda **não** tem uso real: nenhum conector ligado, nenhum pedido que não seja `seed:%`. | `limpar_exemplo.sql` (apaga todos os dados do tenant, menos empresa, usuários, locais, unidades, perfis, operadores e aparelhos). |
+| **Já** há conector ligado ou pedido real (por exemplo: o BaseLinker do seed, `0d…01`, foi conectado e o robô já grava pedidos). | `limpar_so_exemplo.sql`. O `limpar_exemplo.sql` apagaria a integração e os pedidos — por isso ele para na trava nesse caso. |
+
+O `limpar_so_exemplo.sql`:
+
+- **Mantém** empresa, membros, usuários, locais, unidades, perfis de etiqueta, operadores, aparelhos, etapas, numeração de documentos, auditorias do robô, **todos** os conectores (inclusive as linhas `0d…` do seed), credenciais, De-Para de status, `sync_state`, os pedidos reais com os itens e todo cadastro, documento ou movimento que não é do exemplo. Canal do seed (`0a…`) com preço de produto real, ou editado na tela (comissão, taxas e frete são configuração de verdade), também fica. Aviso que não é do seed fica, mesmo citando SKU que também está no exemplo.
+- **Apaga** o exemplo e o que pendura nele: os apelidos do seed, fichas, vínculos fornecedor-insumo, preços, saldos, pedidos `seed:%`, OCs/NF-e/recebimento/inventário do seed, avisos do seed (`09…`), e o que os testes criaram em cima dele — etiquetas e bipes de produto do exemplo, fila de estoque (outbox) desses produtos, saldos do hub, plano do dia, recebimentos de OC/NF-e do seed, inventários só com insumo do exemplo, e os movimentos de estoque de insumo do exemplo que vêm do seed, de bipe, de inventário ou de recebimento do seed (com os estornos). Inventário conta como teste: a contagem é de um insumo que vai sumir, e o insumo importado nasce com saldo zero.
+- **Item de pedido real** que apontava para produto do exemplo fica com `product_id` nulo e o `sku_externo` intacto. A importação do ES religa (mesma regra do robô: apelido, depois SKU principal) e a prévia mostra quantos.
+- **Ledger:** `stock_moves` é append-only. Os movimentos dos insumos do exemplo não podem ser estornados (o insumo precisa sair), então o gatilho `stock_moves_append_only` é desligado só em volta desse `DELETE` e religado em seguida, dentro da mesma transação — como no `limpar_exemplo.sql`. Movimento de insumo que não é do exemplo nunca é apagado.
+- **Trava:** para sem apagar nada, e mostra as contagens, quando acha dado que não é do exemplo ligado ao exemplo e pode ser real: OC ou NF-e fora dos ids do seed com fornecedor ou insumo do exemplo, recebimento fora do seed com insumo do exemplo, movimento de insumo do exemplo lançado à mão ou por nota de verdade, baixa de insumo real feita por bipe/NF-e/recebimento do exemplo, ficha de produto real usando insumo ou produto do exemplo e De-Para de SKU feito na tela do conector num produto do exemplo (qualquer apelido fora dos cinco pares do seed; a mensagem lista os pares `SKU do pedido → SKU do produto`). Confira; para apagar mesmo assim, ponha `set prodio.limpar_mesmo_assim = 'sim';` no começo da mesma execução (vale para uma execução só). Com a confirmação, a OC do fornecedor do exemplo sai, a NF-e real fica sem o vínculo, a baixa de insumo real fica (acerte o saldo no inventário) e o De-Para sai com o produto — o resultado lista os pares, e os SKUs voltam para a lista do De-Para do conector para você refazer depois da importação.
+- Termina listando, tabela por tabela, quantas linhas saíram e quantas ficaram (em `NOTICE` e na consulta do fim). Rodar de novo não apaga nada; rodar depois da importação do ES também não (o catálogo importado não tem os ids do exemplo).
 
 ### Correções pontuais (`supabase/correcoes/`)
 

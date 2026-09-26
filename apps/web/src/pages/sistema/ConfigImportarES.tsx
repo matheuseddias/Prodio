@@ -17,7 +17,7 @@ import { Button, Card, Modal, cx } from '../../ui'
 import ImportarESInstrucoes from './ImportarESInstrucoes'
 import ImportarESPrevia from './ImportarESPrevia'
 import ImportarESResultado from './ImportarESResultado'
-import { cnpjPorNome, cnpjsValidos, conferirArquivo, lerTextoBackup, textoConfirmacao } from './importarESLogica'
+import { cnpjPorNome, cnpjsValidos, conferirArquivo, lerTextoBackup, origemDosPedidos, textoConfirmacao } from './importarESLogica'
 
 type Passo = 'arquivo' | 'previa' | 'resultado'
 const PASSOS: { id: Passo; rotulo: string }[] = [
@@ -33,8 +33,9 @@ interface Simulacao {
 
 export default function ConfigImportarES({ onPerfis }: { onPerfis?: () => void }) {
   const { papel } = useAuth()
-  const { suppliers, modo, simularImportacao, gravarImportacao } = useStore()
+  const { suppliers, connectors, modo, simularImportacao, gravarImportacao } = useStore()
   const admin = papel === 'admin'
+  const origemPedidos = useMemo(() => origemDosPedidos(connectors), [connectors])
 
   const backup = useRef<BackupES | null>(null)
   const rodada = useRef(0)
@@ -216,6 +217,7 @@ export default function ConfigImportarES({ onPerfis }: { onPerfis?: () => void }
           erroSimulacao={erroSimulacao}
           demonstracao={modo === 'memoria'}
           admin={admin}
+          origemPedidos={origemPedidos}
           semCnpj={semCnpj}
           cnpjDigitado={cnpjDigitado}
           cnpjPendente={cnpjPendente}
@@ -230,7 +232,9 @@ export default function ConfigImportarES({ onPerfis }: { onPerfis?: () => void }
         />
       )}
 
-      {passo === 'resultado' && gravada && <ImportarESResultado plano={gravada.plano} simulada={gravada.simulada} gravada={gravada.gravada} onOutroArquivo={recomecar} onPerfis={onPerfis} />}
+      {passo === 'resultado' && gravada && (
+        <ImportarESResultado plano={gravada.plano} simulada={gravada.simulada} gravada={gravada.gravada} origemPedidos={origemPedidos} onOutroArquivo={recomecar} onPerfis={onPerfis} />
+      )}
 
       <Modal
         open={confirmando || gravando || !!erroGravacao}
@@ -269,7 +273,7 @@ export default function ConfigImportarES({ onPerfis }: { onPerfis?: () => void }
             <p className="text-muted">A importação é uma transação só: deu erro, nada entrou. Tentar de novo é seguro, porque importar o mesmo arquivo não duplica.</p>
           </div>
         ) : (
-          previa && <p className="text-sm">{textoConfirmacao(previa)}</p>
+          previa && <p className="text-sm">{textoConfirmacao(previa, origemPedidos)}</p>
         )}
       </Modal>
     </div>

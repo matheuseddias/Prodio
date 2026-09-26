@@ -9,6 +9,7 @@ import {
   type PlanoImportacaoES,
   type PreviaImportacao,
   type ResultadoImportacao,
+  type UsoRealImportacao,
 } from './tipos'
 
 const ehObjeto = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x)
@@ -25,6 +26,9 @@ export function lerResultadoImportacao(json: unknown): ResultadoImportacao {
   if (typeof json.simulacao !== 'boolean') invalido('simulacao')
   const ex = json.exemplo
   if (!ehObjeto(ex) || !inteiro(ex.produtos) || !inteiro(ex.insumos) || !inteiro(ex.fornecedores)) invalido('exemplo')
+  const uso = json.uso_real
+  if (!ehObjeto(uso) || !inteiro(uso.conectores_ligados) || !inteiro(uso.pedidos_reais)) invalido('uso_real')
+  if (!inteiro(json.itens_pedido_religados)) invalido('itens_pedido_religados')
   const cont = json.contagens
   if (!ehObjeto(cont)) invalido('contagens')
   const contagens = {} as Record<EntidadeImportacao, ContagemResultado>
@@ -53,10 +57,28 @@ export function lerResultadoImportacao(json: unknown): ResultadoImportacao {
   return {
     simulacao: json.simulacao,
     exemplo: { produtos: ex.produtos, insumos: ex.insumos, fornecedores: ex.fornecedores },
+    usoReal: { conectoresLigados: uso.conectores_ligados, pedidosReais: uso.pedidos_reais },
     contagens,
     linhas,
+    itensPedidoReligados: json.itens_pedido_religados,
   }
 }
+
+/** Conector ligado ou pedido que não é do exemplo: o Prodio já está em uso de verdade. */
+export function temUsoReal(u: UsoRealImportacao): boolean {
+  return u.conectoresLigados + u.pedidosReais > 0
+}
+
+/**
+ * Script que tira os dados de exemplo no estado atual do tenant. limpar_exemplo.sql apaga todos os dados do tenant
+ * (conectores, credenciais, cursor do robô e pedidos), então só serve sem uso real; com uso real é o
+ * limpar_so_exemplo.sql, que apaga só o exemplo.
+ */
+export function scriptLimpezaExemplo(u: UsoRealImportacao): 'supabase/dist/limpar_so_exemplo.sql' | 'supabase/dist/limpar_exemplo.sql' {
+  return temUsoReal(u) ? 'supabase/dist/limpar_so_exemplo.sql' : 'supabase/dist/limpar_exemplo.sql'
+}
+
+const qtd = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um : varios}`
 
 /** Chaves (entidade + chave) de tudo o que o payload manda ao servidor, no formato das linhas. */
 export function chavesDoPayload(plano: PlanoImportacaoES): Set<string> {
@@ -124,11 +146,17 @@ export function juntarPrevia(plano: PlanoImportacaoES, servidor: ResultadoImport
   if (!plano.aceito) bloqueios.push(plano.recusa ?? 'O arquivo não pode ser importado.')
   const ex = servidor.exemplo
   if (ex.produtos + ex.insumos + ex.fornecedores > 0) {
+    const u = servidor.usoReal
+    const script = scriptLimpezaExemplo(u)
     bloqueios.push(
       `Há dados de exemplo no Prodio (${ex.produtos} produtos, ${ex.insumos} insumos, ${ex.fornecedores} fornecedores). ` +
-        'Remova-os antes de importar: no Supabase, abra o SQL Editor e rode supabase/dist/limpar_exemplo.sql.',
+        (temUsoReal(u)
+          ? `O Prodio já está em uso (${qtd(u.conectoresLigados, 'conector ligado', 'conectores ligados')}, ${qtd(u.pedidosReais, 'pedido real', 'pedidos reais')}): ` +
+            `remova só o exemplo — no Supabase, abra o SQL Editor e rode ${script}. Não use limpar_exemplo.sql: ele apagaria a integração e os pedidos.`
+          : `Remova-os antes de importar: no Supabase, abra o SQL Editor e rode ${script}.`),
     )
   }
-  if (plano.aceito && totalGravacoes === 0) bloqueios.push('Nenhuma alteração a gravar: o Prodio já está igual ao arquivo.')
-  return { linhas, contagens, bloqueios, totalGravacoes, podeGravar: bloqueios.length === 0 }
+  const itensPedidoReligados = servidor.itensPedidoReligados
+  if (plano.aceito && totalGravacoes === 0 && itensPedidoReligados === 0) bloqueios.push('Nenhuma alteração a gravar: o Prodio já está igual ao arquivo.')
+  return { linhas, contagens, bloqueios, totalGravacoes, itensPedidoReligados, podeGravar: bloqueios.length === 0 }
 }

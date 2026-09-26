@@ -107,7 +107,8 @@ select '11111111-1111-1111-1111-111111111111', '0f000000-0000-0000-0000-00000000
 -- O que fica: os pedidos de exemplo (orders/order_items, external_id 'seed:bl:…', raw.seed = true).
 -- Eles são histórico de venda que alimenta projeção e necessidade de compra; dizem "estas vendas
 -- aconteceram", não "a integração está no ar". Envelhecem sozinhos, porque as telas olham 7/14/30 dias.
--- Antes de operar com dados reais, limpar_exemplo.sql apaga pedidos, conectores e o resto do exemplo.
+-- Antes de operar com dados reais, limpar_exemplo.sql apaga pedidos, conectores e o resto do exemplo; quem já
+-- ligou um conector usa limpar_so_exemplo.sql, que apaga só o exemplo e mantém a integração e os pedidos reais.
 -- ---------------------------------------------------------------------------
 insert into public.connectors (id, tenant_id, plataforma, nome, status, config, ultimo_sync) values
   ('0d000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'baselinker', 'Base.com (BaseLinker)', 'desconectado', '{"push_estoque": true}', null),

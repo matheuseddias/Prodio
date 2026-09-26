@@ -3,6 +3,9 @@
 #   schema.sql         todas as migrations na ordem (cole no SQL Editor ou aplique com psql)
 #   dados_eddias.sql   a empresa Eddias com cadastros de exemplo, SEM tocar em auth.users
 #   limpar_exemplo.sql apaga os dados de exemplo e mantém a empresa, os usuários e os aparelhos
+#                      (apaga todos os dados da empresa, não só o exemplo: só para quem ainda não usa o Prodio de verdade)
+#   limpar_so_exemplo.sql apaga SÓ o exemplo e mantém conectores, credenciais, cursor do robô e pedidos reais
+#                      (para quem já ligou um conector antes de importar o cadastro)
 #
 # Os seeds de desenvolvimento (seed.sql, seed_compras.sql) criam usuários direto em auth.users,
 # o que só funciona no Postgres local com stubs. Num projeto real o usuário nasce no Auth
@@ -76,10 +79,12 @@ PY
 } > dist/dados_eddias.sql
 
 # ---------------------------------------------------------------------------
-# limpar_exemplo.sql
+# limpar_exemplo.sql e limpar_so_exemplo.sql
 # ---------------------------------------------------------------------------
-# A fonte é supabase/limpar_exemplo.sql (versionada e testada em tests/0016_limpar_exemplo.test.sql).
+# As fontes são supabase/limpar_exemplo.sql e supabase/limpar_so_exemplo.sql (versionadas e testadas em
+# tests/0016_limpar_exemplo.test.sql e tests/0017_limpar_so_exemplo.test.sql). Quando usar cada uma: docs/deploy.md.
 cp limpar_exemplo.sql dist/limpar_exemplo.sql
+cp limpar_so_exemplo.sql dist/limpar_so_exemplo.sql
 
 echo "gerado em supabase/dist/:"
-wc -l dist/schema.sql dist/dados_eddias.sql dist/limpar_exemplo.sql
+wc -l dist/schema.sql dist/dados_eddias.sql dist/limpar_exemplo.sql dist/limpar_so_exemplo.sql

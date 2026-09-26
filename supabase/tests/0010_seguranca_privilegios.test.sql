@@ -86,7 +86,7 @@ begin
     'import_catalog_txt(jsonb,int)', 'import_catalog_num(jsonb,numeric,numeric,boolean)', 'import_catalog_chaves(jsonb,text[],text[])', 'import_catalog_sku(jsonb)',
     'import_catalog_opc(jsonb,text,boolean)', 'import_catalog_calc(jsonb)', 'import_catalog_validate(jsonb)', 'import_catalog_linha(text,text,text,text,text[])',
     'import_catalog_contagem(int,int,int,int)', 'import_catalog_suppliers(uuid,jsonb)', 'import_catalog_materials(uuid,jsonb)', 'import_catalog_products(uuid,jsonb)',
-    'import_catalog_links(uuid,jsonb)', 'import_catalog_boms(uuid,jsonb)'] loop
+    'import_catalog_links(uuid,jsonb)', 'import_catalog_boms(uuid,jsonb)', 'import_catalog_order_items(uuid)'] loop
     if has_function_privilege('authenticated', ('public.' || f)::regprocedure, 'execute') then raise exception 'authenticated executa %', f; end if;
   end loop;
   if not has_function_privilege('authenticated', 'public.import_catalog(uuid,jsonb,boolean)', 'execute') then raise exception 'import_catalog deveria ser executável'; end if;
