@@ -12,6 +12,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { extrairConsultas } from './extrair.mjs'
 import { exercitarLeituras } from './leituras.mjs'
 import { exercitarEscritas } from './escritas.mjs'
+import { exercitarImportacao } from './importacao.mjs'
 
 const URL_API = process.env.API_URL
 const SEGREDO = process.env.API_JWT_SECRET
@@ -112,6 +113,24 @@ try {
 }
 falhas.push(...escritasDb.falhas)
 
+console.log("\n(c) importação do ES pelo caminho da tela: core planeja o backup sintético, authenticated chama rpc('import_catalog')")
+let importacao = { falhas: [], feitos: 0 }
+try {
+  // o gancho de resolução .ts já foi registrado em (b)
+  // A web lê com o JWT da empresa ativa (a RLS usa a claim tenant_id): a empresa nova da importação precisa do seu.
+  const clienteDoTenant = (tenant) =>
+    createClient(URL_API, chaveAnon, {
+      ...opcoes,
+      global: { headers: { Authorization: `Bearer ${jwt({ sub: SEED.usuario, role: 'authenticated', aud: 'authenticated', is_anonymous: false, app_metadata: { tenant_id: tenant, role: 'admin' } })}` } },
+    })
+  importacao = await exercitarImportacao({ clientes, seed: SEED, fontes: FONTES, clienteDoTenant })
+} catch (e) {
+  const texto = `não consegui importar o core ou rodar a importação: ${e instanceof Error ? e.message : String(e)}`
+  console.log(`  FALHOU  packages/core/src/importacaoEs.ts\n          ${texto}`)
+  importacao.falhas.push({ onde: 'packages/core/src/importacaoEs.ts', texto })
+}
+falhas.push(...importacao.falhas)
+
 console.log('\nresumo')
 console.log(`  selects exercitados: ${consultas.length} (${leituras.requisicoes} requisições: service_role + authenticated)`)
 console.log(`  selects pulados por serem dinâmicos: ${puladas.length}`)
@@ -120,6 +139,7 @@ for (const a of leituras.avisos) console.log(`  aviso: ${a}`)
 console.log(`  escritas diretas da web e do worker achadas no código: ${escritas.length}; as do worker são exercitadas em (b), as da web não`)
 console.log(`  métodos do Db exercitados em (b): ${escritasDb.feitos}`)
 for (const s of escritasDb.semPasso) console.log(`    - fora de (b): ${s}`)
+console.log(`  passos da importação do ES em (c): ${importacao.feitos}`)
 
 if (falhas.length > 0) {
   console.log(`\napi: ${falhas.length} falha(s)`)

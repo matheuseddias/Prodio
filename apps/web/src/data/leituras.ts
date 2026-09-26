@@ -4,6 +4,7 @@ import type { Bom, Channel, Connector, DailyPlanLine, Device, Historico, Label, 
 import { custoFicha } from '../domain/storeFicha'
 import { checar } from './erros'
 import * as M from './mapeadores'
+import { lerTudo } from './paginar'
 import { diaAtual, type Ctx } from './supabaseCtx'
 
 export async function lerTenant(ctx: Ctx): Promise<Tenant> {
@@ -26,34 +27,60 @@ export async function lerOperators(ctx: Ctx): Promise<Operator[]> {
 }
 
 export async function lerSuppliers(ctx: Ctx): Promise<Supplier[]> {
-  const res = await ctx.sb.from('suppliers').select('id,nome,cnpj,regime,lead_time_dias,condicao_pagamento,contato').eq('tenant_id', ctx.tenantId()).is('deleted_at', null).order('nome')
-  return ((checar(res) ?? []) as M.SupplierRow[]).map(M.supplierDoBanco)
+  const id = ctx.tenantId()
+  const rows = await lerTudo<M.SupplierRow>((de, ate) =>
+    ctx.sb.from('suppliers').select('id,nome,cnpj,regime,lead_time_dias,condicao_pagamento,contato').eq('tenant_id', id).is('deleted_at', null).order('nome').order('id').range(de, ate),
+  )
+  return rows.map(M.supplierDoBanco)
 }
 
 export async function lerMaterials(ctx: Ctx): Promise<Material[]> {
   const id = ctx.tenantId()
   const [mats, stock] = await Promise.all([
-    ctx.sb.from('materials').select('id,sku,nome,ncm,unidade_compra,unidade_consumo,fator_conversao,minimo,custo_referencia,fornecedor_padrao_id,lead_time_dias').eq('tenant_id', id).is('deleted_at', null).order('sku'),
-    ctx.sb.from('v_stock').select('material_id,saldo,custo_medio').eq('tenant_id', id),
+    lerTudo<M.MaterialRow>((de, ate) =>
+      ctx.sb.from('materials').select('id,sku,nome,ncm,unidade_compra,unidade_consumo,fator_conversao,minimo,custo_referencia,fornecedor_padrao_id,lead_time_dias').eq('tenant_id', id).is('deleted_at', null).order('sku').order('id').range(de, ate),
+    ),
+    lerTudo<M.StockRow>((de, ate) => ctx.sb.from('v_stock').select('material_id,saldo,custo_medio').eq('tenant_id', id).order('material_id').range(de, ate)),
   ])
-  const saldos = new Map(((checar(stock) ?? []) as M.StockRow[]).map((s) => [s.material_id, s]))
-  return ((checar(mats) ?? []) as M.MaterialRow[]).map((r) => M.materialDoBanco(r, saldos.get(r.id)))
+  const saldos = new Map(stock.map((s) => [s.material_id, s]))
+  return mats.map((r) => M.materialDoBanco(r, saldos.get(r.id)))
 }
 
 export async function lerBoms(ctx: Ctx): Promise<Bom[]> {
-  const res = await ctx.sb.from('v_bom_active').select('product_id,bom_version_id,versao,ativada_em,line_id,ordem,tipo,material_id,component_product_id,consumo,unidade,perda_pct').eq('tenant_id', ctx.tenantId())
-  return M.bomsDoBanco((checar(res) ?? []) as M.BomActiveRow[])
+  const id = ctx.tenantId()
+  const rows = await lerTudo<M.BomActiveRow>((de, ate) =>
+    ctx.sb
+      .from('v_bom_active')
+      .select('product_id,bom_version_id,versao,ativada_em,line_id,ordem,tipo,material_id,component_product_id,consumo,unidade,perda_pct')
+      .eq('tenant_id', id)
+      .order('product_id')
+      .order('ordem')
+      .order('line_id')
+      .range(de, ate),
+  )
+  return M.bomsDoBanco(rows)
 }
 
 export async function lerPrecos(ctx: Ctx): Promise<Record<string, Record<string, number>>> {
-  const res = await ctx.sb.from('product_prices').select('product_id,channel_id,preco').eq('tenant_id', ctx.tenantId())
-  return M.precosPorProduto((checar(res) ?? []) as M.PriceRow[])
+  const id = ctx.tenantId()
+  const rows = await lerTudo<M.PriceRow>((de, ate) => ctx.sb.from('product_prices').select('product_id,channel_id,preco').eq('tenant_id', id).order('product_id').order('channel_id').range(de, ate))
+  return M.precosPorProduto(rows)
 }
 
 /** Produtos dependem de fichas (temFicha/custoFicha), insumos (custo) e preços por canal. */
 export async function lerProducts(ctx: Ctx, deps: { boms: Bom[]; materials: Material[]; precos: Record<string, Record<string, number>> }): Promise<Product[]> {
-  const res = await ctx.sb.from('products').select('id,sku,nome,familia,atributos,ean,ncm,status,peso_kg,peso_cubado_kg,custo_manual,sku_aliases(sku_externo)').eq('tenant_id', ctx.tenantId()).is('deleted_at', null).order('sku')
-  return ((checar(res) ?? []) as unknown as M.ProductRow[]).map((r) => {
+  const id = ctx.tenantId()
+  const rows = await lerTudo<M.ProductRow>((de, ate) =>
+    ctx.sb
+      .from('products')
+      .select('id,sku,nome,familia,atributos,ean,ncm,status,peso_kg,peso_cubado_kg,custo_manual,sku_aliases(sku_externo)')
+      .eq('tenant_id', id)
+      .is('deleted_at', null)
+      .order('sku')
+      .order('id')
+      .range(de, ate),
+  )
+  return rows.map((r) => {
     const bom = deps.boms.find((b) => b.productId === r.id)
     return M.productDoBanco(r, { temFicha: !!bom && bom.linhas.length > 0, custoFicha: bom ? custoFicha(r.id, deps.boms, deps.materials) : undefined, precoVenda: deps.precos[r.id] })
   })

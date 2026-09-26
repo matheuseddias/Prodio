@@ -31,6 +31,13 @@ const CODIGOS: Record<string, string> = {
   '22P02': 'Formato de dado inválido.',
   '42883': 'Função ainda não existe no banco (migration pendente).',
   '42P01': 'Tabela ainda não existe no banco (migration pendente).',
+  '57014': 'O banco demorou demais e cancelou a operação: nada foi gravado. Tente de novo.',
+  // Falhas entre o PostgREST e o banco (503/504). Chegam com a mensagem em inglês do PostgREST: o PGRST001
+  // é o que a tela recebe quando a conexão cai no meio de uma gravação (a transação é desfeita).
+  PGRST000: 'O servidor não conseguiu falar com o banco. Tente de novo em instantes.',
+  PGRST001: 'O servidor perdeu a conexão com o banco no meio da operação. Tente de novo em instantes.',
+  PGRST002: 'O servidor ainda está se reconectando ao banco. Tente de novo em instantes.',
+  PGRST003: 'O banco está ocupado demais agora. Tente de novo em instantes.',
   PGRST116: 'Registro não encontrado.',
   PGRST301: 'Sessão inválida. Entre de novo.',
   PGRST202: 'RPC não encontrada no banco (migration pendente).',
@@ -48,7 +55,7 @@ export function mensagemErro(e: unknown, fallback = 'Não foi possível concluir
     // Erros de negócio (P0001/22023) já vêm em português do próprio banco.
     return CODIGOS[err.code]
   }
-  if (err.code === 'P0001' || err.code === '22023' || err.code === '28000') return msg || fallback
+  if (err.code === 'P0001' || err.code === '22023' || err.code === '28000' || err.code === '55000') return msg || fallback
   if (err.status === 401 || err.status === 403) return 'Sem permissão. Entre de novo ou peça acesso ao administrador.'
   if (msg) return msg
   return fallback

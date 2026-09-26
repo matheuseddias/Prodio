@@ -2,9 +2,11 @@
 // (memória por padrão, Supabase quando VITE_SUPABASE_URL está definida).
 // Cada ação atualiza o estado de forma otimista (regras de data/local.ts), chama o Repo e
 // aplica o que ele devolve. A API pública de useStore() é a mesma do modo memória.
+import type { PayloadImportacao, ResultadoImportacao } from '@prodio/core/importacaoEs'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useAuth, type TenantResumo } from '../app/auth'
 import { mensagemErro } from '../data/erros'
+import { FATIAS_DO_CATALOGO } from '../data/importacaoCatalogo'
 import * as local from '../data/local'
 import { MemoryRepo, snapshotExemplo } from '../data/memoryRepo'
 import { novoId, type ModoDados, type OperadorInput, type Parte, type Patch, type Repo, type Retorno, type ScanResult, type Snapshot } from '../data/repo'
@@ -47,6 +49,10 @@ interface Actions {
   removeMember: (id: string) => void
   removeDevice: (id: string) => void
   upsertOperator: (o: OperadorInput) => void
+  /** Importação do ES: o que a gravação faria no estado atual, sem gravar nada. Lança em erro. */
+  simularImportacao: (payload: PayloadImportacao) => Promise<ResultadoImportacao>
+  /** Importação do ES: grava (tudo ou nada) e relê o catálogo. Lança quando nada foi gravado. */
+  gravarImportacao: (payload: PayloadImportacao) => Promise<ResultadoImportacao>
 }
 
 export interface Meta {
@@ -248,6 +254,32 @@ export function StoreProvider({ children, repo: repoProp }: { children: ReactNod
     [modo, repo, aplicarPatch],
   )
 
+  // Importação do ES: não é otimista (a tela espera a resposta do banco) e entra na mesma fila das ações,
+  // para não ultrapassar uma escrita em voo. Depois de gravar, relê só o catálogo — `recarregar` ligaria o
+  // loading da tela inteira e a página perderia o resultado que acabou de mostrar.
+  const importar = useCallback(
+    async (payload: PayloadImportacao, simular: boolean): Promise<ResultadoImportacao> => {
+      const tarefa = cadeia.current.then(() => repo.importarCatalogo(payload, { simular }))
+      cadeia.current = tarefa.then(
+        async (r) => {
+          aplicarPatch(r.patch)
+          if (simular) return
+          try {
+            aplicarPatch(await repo.recarregar(FATIAS_DO_CATALOGO))
+          } catch (e) {
+            setErroAcao(`A importação foi gravada, mas a releitura do cadastro falhou (${mensagemErro(e)}). Recarregue a página.`)
+          }
+        },
+        () => {},
+      )
+      await cadeia.current
+      return (await tarefa).valor
+    },
+    [repo, aplicarPatch],
+  )
+  const simularImportacao = useCallback<Actions['simularImportacao']>((payload) => importar(payload, true), [importar])
+  const gravarImportacao = useCallback<Actions['gravarImportacao']>((payload) => importar(payload, false), [importar])
+
   const limparErro = useCallback(() => setErroAcao(null), [])
   const value = useMemo(
     () => ({
@@ -255,10 +287,11 @@ export function StoreProvider({ children, repo: repoProp }: { children: ReactNod
       registerScan, reverseScan, setProjetado, printLabels, addStockMove, upsertProduct, upsertMaterial, upsertSupplier, saveBom,
       createPurchaseOrder, updatePurchaseOrder, receiveNfe, updateNfe, markNotification, setConnector, retryOutbox, upsertMember,
       upsertDevice, setTenant, upsertChannel, removeChannel, setPrecoVenda, annulLabel, addNfe, removeMember, removeDevice, upsertOperator,
+      simularImportacao, gravarImportacao,
       modo, loading, erro, erroAcao, limparErro, recarregar: carregar, recarregarFatias, tenants: auth.tenants,
       pendentesBipes: bipes.pendentes, sincronizarBipes: bipes.drenar,
     }),
-    [s, registerScan, reverseScan, setProjetado, printLabels, addStockMove, upsertProduct, upsertMaterial, upsertSupplier, saveBom, createPurchaseOrder, updatePurchaseOrder, receiveNfe, updateNfe, markNotification, setConnector, retryOutbox, upsertMember, upsertDevice, setTenant, upsertChannel, removeChannel, setPrecoVenda, annulLabel, addNfe, removeMember, removeDevice, upsertOperator, modo, loading, erro, erroAcao, limparErro, carregar, recarregarFatias, auth.tenants, bipes.pendentes, bipes.drenar],
+    [s, registerScan, reverseScan, setProjetado, printLabels, addStockMove, upsertProduct, upsertMaterial, upsertSupplier, saveBom, createPurchaseOrder, updatePurchaseOrder, receiveNfe, updateNfe, markNotification, setConnector, retryOutbox, upsertMember, upsertDevice, setTenant, upsertChannel, removeChannel, setPrecoVenda, annulLabel, addNfe, removeMember, removeDevice, upsertOperator, simularImportacao, gravarImportacao, modo, loading, erro, erroAcao, limparErro, carregar, recarregarFatias, auth.tenants, bipes.pendentes, bipes.drenar],
   )
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>

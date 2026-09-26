@@ -45,7 +45,8 @@ Fluxo de dependência: `web` e `worker` dependem de `core`. `core` não depende 
 `set_active_tenant`, `next_doc_number` (interna), `register_device`, `set_operator`,
 `reserve_label_batch`, `annul_label`, `register_scan`, `reverse_scan`, `set_daily_plan`,
 `post_stock_move`, `reverse_stock_move`, `create_purchase_order`, `update_purchase_order_status`,
-`receive_nfe`, `close_inventory_session`, `activate_bom`, `enqueue_outbox` (interna), `apply_outbox_result` (worker).
+`receive_nfe`, `close_inventory_session`, `activate_bom`, `enqueue_outbox` (interna), `apply_outbox_result` (worker),
+`import_catalog` (importação do cadastro do Eddias Suprimentos: só admin, em lote, com simulação; ver `docs/schema.md`).
 
 ## 3. Regras de negócio no `core`
 
@@ -59,11 +60,14 @@ Tudo que calcula fica em `packages/core`, como função pura com teste:
 - `nfe.ts` validação de chave (dígito verificador módulo 11), decomposição da chave, parser do XML (modelo 55, cStat, série, finNFe, CFOP do emitente, vDesc/vFrete/vSeg/vOutro, ICMS-ST, PIS/COFINS, IBS/CBS, uCom e uTrib), classificação por CFOP.
 - `precificacao.ts` preço por margem alvo por canal.
 - `unidades.ts` conversão compra → consumo.
+- `importacaoEs.ts` (+ `importacaoEs/`) backup do Eddias Suprimentos → plano de importação: lê o JSON do "Baixar backup completo" em lista branca (usuários, senhas, config, vendas, notas e ledger nunca saem do navegador), normaliza unidades, resolve CNPJ, de/para TM↔ED, fichas (perda em fração, sempre 0: o consumo do ES já inclui a perda) e monta o payload da RPC `import_catalog`; `juntarPrevia` cruza o plano com a simulação do banco.
 
 ## 4. Interface
 
 - Páginas leem do store; o store fala com um `Repo`. Há duas implementações: `MemoryRepo` (dados de exemplo, usada sem variáveis de ambiente) e `SupabaseRepo`. A escolha é por `VITE_SUPABASE_URL`.
 - Toda escrita crítica chama uma RPC. Leituras usam `supabase.from(...)` com RLS.
+- **Leitura que pode passar de 1.000 linhas é paginada** (`data/paginar.ts`, `lerTudo`, lotes de 1.000 com ordem estável terminando numa chave única). O PostgREST do Supabase corta em 1.000 (db-max-rows) sem erro: a tela ficaria pela metade e salvar uma ficha cortada ativaria uma versão com linhas a menos. Hoje: fornecedores, insumos (+ `v_stock`), fichas (`v_bom_active`), produtos e preços. O `db:test:api` sobe o PostgREST com o mesmo teto e prova a leitura acima dele.
+- **Importar do ES** (Configurações, aba só para admin): o arquivo do "Baixar backup completo" é lido no navegador (`FileReader` → `lerBackupES` do core, em lista branca); o JSON cru não vai para estado, store, storage, URL nem console. O store chama `Repo.importarCatalogo` (Supabase: RPC `import_catalog`; memória: `data/importacaoMemoria.ts`, as mesmas regras sobre os dados de exemplo), sempre simulando antes (a prévia) e gravando exatamente o payload simulado. Depois de gravar, o store relê só as fatias do catálogo.
 - Chão de fábrica funciona sem rede: fila de bipes em IndexedDB, conjunto local de seriais lidos para responder "já bipado" offline, replay em ordem tratando conflito de unicidade como sucesso.
 
 ## 5. Worker

@@ -1,5 +1,6 @@
 // Contrato entre o store e a camada de dados. Duas implementações: MemoryRepo (dados de exemplo,
 // sem variáveis de ambiente) e SupabaseRepo (docs/schema.md). Páginas nunca falam com o Repo.
+import type { PayloadImportacao, ResultadoImportacao } from '@prodio/core/importacaoEs'
 import type {
   Bom,
   Channel,
@@ -124,6 +125,13 @@ export interface Repo {
   upsertChannel(c: Channel): Promise<Patch>
   removeChannel(id: string): Promise<Patch>
   setPrecoVenda(productId: string, channelId: string, preco: number | undefined): Promise<Patch>
+
+  /**
+   * Importação do cadastro do ES (payload montado pelo core; o arquivo nunca chega aqui). `simular: true`
+   * devolve o que a gravação faria sem gravar nada. Lança quando nada foi gravado. Depois de gravar, o
+   * store relê as fatias do catálogo (FATIAS_DO_CATALOGO).
+   */
+  importarCatalogo(payload: PayloadImportacao, opts: { simular: boolean }): Promise<Retorno<ResultadoImportacao>>
 }
 
 /** Gera um id único para entidades criadas no cliente (uuid quando o navegador oferece). */

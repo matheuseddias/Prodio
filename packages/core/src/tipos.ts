@@ -356,6 +356,7 @@ export interface Notification {
 // ---------------------------------------------------------------------------
 export type BomCalcTipo = 'area' | 'rolo' | 'comprimento' | 'peso' | 'unidade'
 export interface BomCalcParte {
+  nome?: string // rótulo da peça (ex.: "Tampo"), só para leitura
   qtd?: number // quantas peças iguais (padrão 1)
   largCm?: number // area e rolo
   altCm?: number // area e rolo

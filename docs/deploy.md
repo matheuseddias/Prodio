@@ -15,7 +15,7 @@ Saem três arquivos em `supabase/dist/` (não versionados, são gerados):
 |---|---|
 | `schema.sql` | As 9 migrations na ordem. Cria tabelas, RLS, funções e views. |
 | `dados_eddias.sql` | Cria a empresa Eddias com cadastros de exemplo. Não toca em `auth.users`. |
-| `limpar_exemplo.sql` | Apaga só os dados de exemplo, mantendo empresa, usuários, locais, unidades, perfis de etiqueta e operadores. |
+| `limpar_exemplo.sql` | Apaga os dados de exemplo — e tudo o mais do tenant `eddias`: conectores, pedidos, OCs, NF-e, etiquetas, bipes, ledger e cadastros —, mantendo empresa, usuários, locais, unidades, perfis de etiqueta, operadores e aparelhos. Se achar sinal de uso real (conector ligado, pedido, OC, NF-e, etiqueta, bipe, movimento de estoque ou produto, insumo ou fornecedor que não são do exemplo — como os que a importação do ES grava), para sem apagar nada e mostra as contagens; para apagar mesmo assim, ponha `set prodio.limpar_mesmo_assim = 'sim';` no começo da mesma execução. A fonte é `supabase/limpar_exemplo.sql`. |
 
 ## 1. Criar o usuário administrador
 
@@ -52,7 +52,7 @@ Se o usuário do passo 1 não existir, o arquivo interrompe com uma mensagem diz
 
 Os cinco conectores (BaseLinker, Bling, Tiny, Omie, Magis5) nascem **desconectados**, sem credencial e sem último sync. É de propósito: credencial é cifrada com a `CREDENTIALS_KEY` do worker e não pode ser semeada, então um conector semeado como conectado seria uma promessa falsa na tela e uma falha a cada 5 minutos no cron. Quem conecta é você, pela tela, depois do passo 8.
 
-Quando for usar dados reais, rode `limpar_exemplo.sql` e importe os seus pelas telas de cadastro.
+Quando for usar dados reais, rode `limpar_exemplo.sql` e importe os seus pelas telas de cadastro (ou, vindo do Eddias Suprimentos, pela importação do backup do ES: ela recusa gravar enquanto houver dado de exemplo).
 
 ### Correções pontuais (`supabase/correcoes/`)
 

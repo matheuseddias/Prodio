@@ -1,9 +1,12 @@
 // Repositório em memória: guarda o Snapshot com os dados de exemplo e aplica as regras de local.ts.
 // É o modo usado sem VITE_SUPABASE_URL. Cada ação devolve as fatias que mudaram.
+import type { PayloadImportacao, ResultadoImportacao } from '@prodio/core/importacaoEs'
 import * as mock from '../domain/mock'
+import { custoFicha } from '../domain/storeFicha'
 import type { Bom, Channel, Connector, Device, Label, Material, Member, NfeInbound, Product, PurchaseOrder, StockMove, Supplier, Tenant } from '../domain/types'
+import { importarEmMemoria, type VinculoMemoria } from './importacaoMemoria'
 import * as local from './local'
-import type { OpcoesBipe, OperadorInput, Parte, Patch, RegistroBipe, Repo, Retorno, Snapshot } from './repo'
+import { novoId, type OpcoesBipe, type OperadorInput, type Parte, type Patch, type RegistroBipe, type Repo, type Retorno, type Snapshot } from './repo'
 
 export function snapshotExemplo(): Snapshot {
   return {
@@ -35,6 +38,8 @@ const TODAS: Parte[] = ['tenant', 'products', 'materials', 'suppliers', 'boms', 
 export class MemoryRepo implements Repo {
   readonly modo = 'memoria' as const
   private s: Snapshot
+  /** Vínculos insumo-fornecedor criados pela importação (não são fatia do Snapshot). */
+  private vinculos: VinculoMemoria[] = []
 
   constructor(inicial: Snapshot = snapshotExemplo()) {
     this.s = inicial
@@ -157,5 +162,22 @@ export class MemoryRepo implements Repo {
   }
   async setPrecoVenda(productId: string, channelId: string, preco: number | undefined): Promise<Patch> {
     return this.aplicar(local.setPrecoVenda(this.s, productId, channelId, preco), ['products'])
+  }
+
+  /** Demonstração: aplica o payload ao catálogo de exemplo com as regras da RPC import_catalog (importacaoMemoria.ts). */
+  async importarCatalogo(payload: PayloadImportacao, opts: { simular: boolean }): Promise<Retorno<ResultadoImportacao>> {
+    const { suppliers, materials, products, boms } = this.s
+    const r = importarEmMemoria({ suppliers, materials, products, boms, vinculos: this.vinculos }, payload, {
+      novoId,
+      agora: new Date().toISOString(),
+      unidades: mock.units.map((u) => u.code),
+    })
+    const valor: ResultadoImportacao = { ...r.resultado, simulacao: opts.simular }
+    if (opts.simular) return { valor, patch: {} }
+    const c = r.catalogo
+    // Custo da ficha é derivado: refeito para quem tem ficha ativa (insumo pode ter mudado de custo).
+    const comCusto = c.products.map((p) => (c.boms.some((b) => b.productId === p.id && b.ativa) ? { ...p, custoFicha: custoFicha(p.id, c.boms, c.materials) } : p))
+    this.vinculos = c.vinculos
+    return { valor, patch: this.aplicar({ ...this.s, suppliers: c.suppliers, materials: c.materials, products: comCusto, boms: c.boms }, ['suppliers', 'materials', 'products', 'boms']) }
   }
 }

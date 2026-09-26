@@ -1,0 +1,141 @@
+{
+  "bom": [
+    {"sku":"ED900001","tipo":"produto","mpCode":"ED900002","consumo":2,"unidade":"un"},
+    {"sku":"ED900001","calc":{"tipo":"area","perda":"10","partes":[{"un":"","alt":"40","qtd":1,"comp":"","larg":"40","nome":"espelho 40cm","peso":"","larguraRolo":1.4}],"perdaTipo":"pct","larguraRolo":1.4},"mpCode":"MP9001","consumo":0.176,"unidade":"m2"},
+    {"sku":"ED900001","calc":{"tipo":"rolo","perda":0,"partes":[{"un":"","alt":117,"qtd":1,"comp":"","larg":2.2,"nome":"Tira 2,2cm","peso":""},{"un":"","alt":117,"qtd":2,"comp":"","larg":1,"nome":"Tira 1cm","peso":""},{"un":"","alt":118,"qtd":1,"comp":"","larg":2.2,"nome":"Alça 2,2cm","peso":""}],"perdaTipo":"pct","larguraRolo":1.4},"mpCode":"MP9002","consumo":0.053643,"unidade":"m2"},
+    {"sku":"ED900001","mpCode":"MP9003","consumo":1,"unidade":"Un"},
+    {"sku":"ED900001","mpCode":"MP9004","consumo":1,"unidade":"Un"},
+    {"sku":"ED900001","mpCode":"MP9005","consumo":0.02,"unidade":"CT"},
+    {"sku":"ED900002","calc":{"tipo":"peso","perda":"0.3","partes":[{"un":"","alt":"","qtd":"2","comp":"","larg":"","nome":"pino","peso":"3","larguraRolo":1.4}],"perdaTipo":"fixo","larguraRolo":1.4},"mpCode":"MP9006","consumo":6.3,"unidade":"g"},
+    {"sku":"ED900003","calc":{"tipo":"rolo","perda":"5","partes":[{"un":"","alt":"40","qtd":1,"comp":"","larg":"90","nome":"tampo 90x40","peso":"","larguraRolo":"1.4"}],"perdaTipo":"pct","larguraRolo":"1.4"},"mpCode":"MP9007","consumo":0.28,"unidade":"MT"},
+    {"sku":"ED900004","tipo":"produto","mpCode":"ED900003","consumo":2,"unidade":"un"},
+    {"sku":"ED900004","mpCode":"MP9008","consumo":1,"unidade":"un"},
+    {"sku":"TM900001","mpCode":"MP9001","consumo":0.0707,"unidade":"m2"},
+    {"sku":"TM900001","mpCode":"MP9004","consumo":0,"unidade":"Un"},
+    {"sku":"TM900001","mpCode":"MP9005","consumo":0.01,"unidade":"CT"},
+    {"sku":"TM900001","mpCode":"MP9005","consumo":0.01,"unidade":"CT"},
+    {"sku":"TM900002","mpCode":"MP9001","consumo":0.16,"unidade":"m2"},
+    {"sku":"TM900002","mpCode":"MP9003","consumo":1,"unidade":"Un"}
+  ],
+  "movs": [
+    {"id":"mfx1a2b3-teste001","data":"2026-09-24T17:40:00.000Z","tipo":"Ficha técnica · ficha salva","motivo":"ED900001 · 6 itens · CMV atualizado · por Usuário Fictício de Teste"},
+    {"id":"mfx1a2b4-teste002","por":"Usuário Fictício de Teste","data":"2026-09-24T12:10:00.000Z","tipo":"Recebimento de compra","itens":[{"qtd":2,"sku":"MP9001","preco":300}],"motivo":"OC-2026-0001 · Vidraçaria Exemplo Ltda · NF 123 · 1 itens · parcial"},
+    {"id":"mfx1a2b5-teste003","data":"2026-09-23T15:00:00.000Z","tipo":"Devolução","fotos":[],"itens":[{"qtd":1,"sku":"ED900003"}],"pedido":"PED-TESTE-1","comprador":"Cliente Fictício","numero_externo":""}
+  ],
+  "bipes": [],
+  "metas": {},
+  "ocSeq": 1,
+  "sales": [
+    {"sku":"TM900002","nome":"Espelho Adnet 40 Preto (SKU antigo)","ticket":49.9,"vendas":120,"faturamento":5988},
+    {"sku":"ED900003","nome":"MousePad 90x40 Preto","ticket":29.9,"vendas":300,"faturamento":8970},
+    {"sku":"ED900004","nome":"Kit 2 MousePads Preto","ticket":59.9,"vendas":40,"faturamento":2396}
+  ],
+  "tombs": {
+    "insumos": {"MP9001":null},
+    "products": {"ED900099":"2026-09-22T10:00:00.000Z"}
+  },
+  "users": [
+    {"id":"u1758900000000","nome":"Usuário Fictício de Teste","role":"membro","email":"usuario.ficticio@exemplo.invalid","perms":{"insumos":"edit","produtos":"view"},"senha":"nao-copiar","galpao":"Eddias"}
+  ],
+  "config": {
+    "notif": {"cad_ficha":false,"compras_minimo":true},
+    "margem": 7,
+    "precif": {"adsPct":0,"extraR":0,"margemPct":25,"ultimoSku":"ED900001","impostoPct":0},
+    "empresa": {"ie":"000.000.000.000","obs":"","cnpj":"00.000.000/0000-00","email":"compras@exemplo.invalid","razao":"Empresa Exemplo Ltda (fictícia)","endereco":"Rua Fictícia, 0 - Cidade Exemplo/UF","telefone":"(00) 0000-0000"},
+    "perdaMm": 3,
+    "periodo": 15,
+    "compRolo": 15,
+    "diasUteis": 22,
+    "margemProd": 10,
+    "periodoFim": "2026-09-24",
+    "periodoIni": "2026-09-10",
+    "larguraRolo": 140,
+    "margemInsumo": {"MP9001":5},
+    "minInsumoDias": 7,
+    "tamanhosChapa": [{"a":2.4,"l":3.21},{"a":2.4,"l":1.605}],
+    "leadPadraoDias": 7,
+    "silenciarAvisosBase": false
+  },
+  "depara": {
+    "TM900002": "ED900001"
+  },
+  "ordens": [
+    {"ipi":0,"data":"2026-09-20T13:00:00.000Z","itens":[{"mp":"MP9001","un":"CH","qtd":10,"fator":7.704,"preco":300,"total":3000,"insumo":"Chapa Espelho 3mm 3,21x2,40 (exemplo)","qtdMes":40,"entrega":"2026-09-27","unConsumo":"m2","qtdRecebida":2}],"local":"Eddias","notas":[{"nfe":"123","por":"Usuário Fictício de Teste","data":"2026-09-24","itens":[{"mp":"MP9001","qtd":2,"preco":300}],"valor":600}],"prazo":"28-35-42","total":3000,"numero":"OC-2026-0001","status":"parcial","geradoPor":"Usuário Fictício de Teste","fornecedor":"Vidraçaria Exemplo Ltda","geradoEmail":"usuario.ficticio@exemplo.invalid","infoAdicional":"","periodicidade":"semanal"}
+  ],
+  "perdas": [],
+  "prazos": [
+    "28-35-42-49",
+    "30-60-90",
+    "30-45-60",
+    "30-60-90-120-150",
+    "28-35-42",
+    "30/60"
+  ],
+  "insumos": [
+    {"ncm":"7009.91.00","sku":"MP9001","nome":"Chapa Espelho 3mm 3,21x2,40 (exemplo)","saldo":38.52,"setor":"Eddias Home","minimo":30.8,"aliqIpi":null,"credIpi":0,"unidade":"CH","aliqIcms":12,"credIcms":0,"processo":"Corte de Espelhos","valorIpi":0,"valorNfe":300,"custoMedio":29.1837,"fornecedor":"Vidraçaria Exemplo Ltda","custoLiquido":239.57999999999998,"fornecedores":[{"nome":"Vidraçaria Exemplo Ltda","preco":300,"aliqIcms":12}],"regimeNormal":true,"credPisCofins":0,"fatorConversao":7.704,"unidadeConsumo":"m2"},
+    {"ncm":"5903.20.00","sku":"MP9002","nome":"Montana Rockl Preto rolo 1,40x50m (exemplo)","saldo":61.3,"setor":"Eddias Home","minimo":25,"aliqIpi":null,"credIpi":0,"unidade":"RL","aliqIcms":12,"credIcms":0,"processo":"","valorIpi":82.5,"valorNfe":1650,"custoMedio":26.3538,"fornecedor":"Tecidos Modelo Ind. e Com.","custoLiquido":1317.69,"fornecedores":[{"nome":"Tecidos Modelo Ind. e Com.","preco":1650}],"regimeNormal":true,"credPisCofins":0,"fatorConversao":50,"unidadeConsumo":"MT"},
+    {"ncm":"","sku":"MP9003","nome":"Disco MDF 370x370x8 (exemplo)","saldo":410,"setor":"Eddias Home","minimo":150,"credIpi":0,"unidade":"Un","aliqIcms":18,"credIcms":0,"processo":"","valorIpi":0,"valorNfe":0.7,"custoMedio":0.520905,"fornecedor":"","custoLiquido":0.520905,"fornecedores":[],"regimeNormal":true,"credPisCofins":0,"fatorConversao":1,"unidadeConsumo":"Un"},
+    {"ncm":"4819.10.00","sku":"MP9004","nome":"Caixa Embalagem Espelho 40cm fardo 25 (exemplo)","saldo":120,"setor":"Eddias Home","minimo":60,"credIpi":0,"unidade":"Fardo","aliqIcms":0,"credIcms":0,"processo":"","valorIpi":0,"valorNfe":87.25,"aliqCredSN":2.89,"custoMedio":3.389139,"fornecedor":"Plásticos Teste ME","custoLiquido":84.728475,"fornecedores":[{"nome":"Plásticos Teste ME","preco":87.25}],"regimeNormal":false,"credPisCofins":0,"fatorConversao":25,"unidadeConsumo":"Un"},
+    {"ncm":"","sku":"MP9005","nome":"Parafuso Chipboard 4,0x40 cento (exemplo)","saldo":0,"minimo":0,"credIpi":0,"unidade":"CT","aliqIcms":18,"credIcms":0.34,"valorNfe":11.88,"custoMedio":11.88,"fornecedor":"Casa do Parafuso Fictícia","custoLiquido":10.47,"fornecedores":[{"nome":"Casa do Parafuso Fictícia","preco":11.88}],"regimeNormal":false,"credPisCofins":1.07,"fatorConversao":1,"unidadeConsumo":"CT"},
+    {"ncm":"3916.90.90","sku":"MP9006","nome":"Filamento PETG 1kg Preto (exemplo)","saldo":2750,"setor":"3D","minimo":1000,"credIpi":0,"unidade":"Un","aliqIcms":0,"credIcms":0,"processo":"3D","valorIpi":0,"valorNfe":58.9,"aliqCredSN":1.25,"custoMedio":0.05816375,"fornecedor":"Plásticos Teste ME","custoLiquido":58.16375,"fornecedores":[{"nome":"Plásticos Teste ME","preco":58.9}],"regimeNormal":false,"credPisCofins":0,"fatorConversao":1000,"unidadeConsumo":"g"},
+    {"ncm":"","sku":"MP9007","nome":"Sintético Alpes Preto rolo 1,40m (exemplo)","saldo":96.4,"setor":"Eddias","minimo":40,"aliqIpi":null,"credIpi":0,"unidade":"MT","aliqIcms":18,"credIcms":0,"processo":"Corte de Rolos","valorIpi":0,"valorNfe":18.5,"custoMedio":13.766774999999999,"fornecedor":"Tecidos Modelo Ind. e Com.","custoLiquido":13.766774999999999,"fornecedores":[{"nome":"Tecidos Modelo Ind. e Com.","preco":18.5,"aliqIcms":null}],"regimeNormal":true,"credPisCofins":0,"fatorConversao":1,"unidadeConsumo":"MT"},
+    {"ncm":"","sku":"MP9008","nome":"Saco Plástico 30x40 milheiro (exemplo)","saldo":800,"setor":"Eddias","minimo":0,"credIpi":0,"unidade":"MIL","aliqIcms":0,"credIcms":0,"processo":"","valorIpi":0,"valorNfe":0,"aliqCredSN":0,"custoMedio":0.045,"fornecedor":"Plásticos Teste ME","custoLiquido":0,"fornecedores":[{"nome":"Plásticos Teste ME","preco":0}],"regimeNormal":false,"credPisCofins":0,"fatorConversao":1000,"unidadeConsumo":"un"}
+  ],
+  "projDia": {
+    "260925": {"ED900001":32}
+  },
+  "kaminoMP": [
+    {"nf":"123","desc":"","pago":false,"raiz":"11222333","venc":"2026-10-22","nfRaw":"000.123","valor":200,"pessoa":"VIDRACARIA EXEMPLO LTDA"}
+  ],
+  "products": [
+    {"cmv":11.77,"cor":"Preto","ean":"2000000000015","ncm":"7009.91.00","sku":"ED900001","foto":"https://exemplo.invalid/fotos/ED900001.jpg","icms":18,"nome":"Espelho Adnet Redondo 40cm - Preto","tipo":"Espelho","curva":"A","linha":"Adnet","altura":0,"status":"ativo","divisao":"Eddias Home","estoque":12,"formato":"Redondo","largura":40,"cmvBruto":13.14,"lapidado":false,"material":"Sintético","categoria":"Espelho","descricao":"Espelho redondo de exemplo com alça (texto fictício).","reservado":0,"estoqueMin":6,"grupoCorte":"Redondo 40cm"},
+    {"cmv":0.37,"cor":"Preto","ean":"","ncm":"3926.90.90","sku":"ED900002","foto":"","icms":18,"nome":"Pino Suporte 3D - Preto","tipo":"3D","linha":"","altura":0,"status":"ativo","divisao":"Eddias","estoque":0,"formato":"","largura":0,"lapidado":false,"material":"","categoria":"Acessório","descricao":"","reservado":0,"estoqueMin":0,"grupoCorte":""},
+    {"cmv":3.85,"cor":"Preto","ean":"2000000000039","ncm":"5603.94.10","sku":"ED900003","foto":"","icms":18,"nome":"MousePad 90x40cm Sintético - Preto","tipo":"Mousepad","curva":"B","linha":"","altura":40,"status":"ativo","divisao":"Eddias","estoque":40,"formato":"","largura":90,"cmvBruto":5.18,"lapidado":false,"material":"Sintético","categoria":"Mousepad","descricao":"","reservado":0,"estoqueMin":10,"grupoCorte":""},
+    {"cmv":7.71,"cor":"Preto","ean":"2000000000046","ncm":"5603.94.10","sku":"ED900004","foto":"","icms":18,"nome":"Kit 2 MousePads 90x40cm - Preto","tipo":"Outro","curva":"C","linha":"","altura":0,"status":"ativo","divisao":"Eddias","estoque":0,"formato":"","largura":0,"lapidado":false,"material":"","categoria":"Kit","descricao":"","reservado":0,"estoqueMin":2,"grupoCorte":""},
+    {"cmv":9.5,"ean":2000000000091,"ncm":"7009.91.00","sku":"TM900001","icms":18,"nome":"Bandeja Espelhada Redonda 30cm - Dourado","status":"inativo","divisao":"Eddias Home","categoria":"Bandeja"}
+  ],
+  "linhaHist": {
+    "260925": {"imp":42,"prod":40,"proj":32}
+  },
+  "romaneios": [],
+  "deparaForn": {
+    "11222333000181": {"CH3MM-321240":{"mp":"MP9001","fator":7.704}},
+    "12345678000195": {"ALPES-PT":"MP9007","ROCKL-PT-140":{"mp":"MP9002","fator":50}}
+  },
+  "devolucoes": [],
+  "fornInsumo": {
+    "Vidraçaria Exemplo Ltda": {"MP9001":{"un":"CH","fator":7.704,"inteiro":true}},
+    "Tecidos Modelo Ind. e Com.": {"MP9002":{"un":"RL","fator":50,"inteiro":true},"MP9007":{"un":"MT","fator":1,"inteiro":false}}
+  },
+  "kaminoForn": {
+    "12345678000195": "Tecidos Modelo Ind. e Com."
+  },
+  "kaminoItem": {
+    "11222333000181": {"CH3MM-321240":"MP9001"}
+  },
+  "precifProd": {
+    "ED900001": {"a":6,"c":45,"l":45,"pesoKg":1.9},
+    "ED900003": {"a":10,"c":42,"l":10,"pesoKg":0.42}
+  },
+  "conferencia": {},
+  "impressoDia": {
+    "260925": {"ED900001":30,"ED900003":12}
+  },
+  "seqEtiqueta": {
+    "260925": 84
+  },
+  "seqMontagem": {
+    "260925": {"ED900001":30}
+  },
+  "fornecedores": [
+    {"cnpj":"98.765.432/0001-98","nome":"Plásticos Teste ME","prazo":"","contato":"vendas@exemplo.invalid","regimeNormal":false},
+    {"cnpj":"","nome":"Tecidos Modelo Ind. e Com.","prazo":"30/60","contato":"","leadTime":12,"regimeNormal":true},
+    {"cnpj":"11.222.333/0001-81","nome":"Vidraçaria Exemplo Ltda","prazo":"28-35-42","contato":"Contato Fictício · (00) 0000-0000","leadTime":7,"regimeNormal":true}
+  ],
+  "kaminoContas": [
+    {"_src":"kamino","desc":"adiantamento","pago":false,"venc":"2026-09-30","valor":1500,"centro":"Administrativo","pessoa":"Pessoa Física Fictícia","atrasado":false,"categoria":"Salário"}
+  ],
+  "notasImportadas": [
+    {"nNF":"123","cnpj":"11222333000181","data":"2026-09-24T12:10:00.000Z","chave":"NFe00000000000000000000000000000000000000000000","ordem":"OC-2026-0001","valor":600,"nItens":1,"credIpi":0,"credIcms":72,"fornecedor":"VIDRACARIA EXEMPLO LTDA","divergencias":[],"credPisCofins":48.84}
+  ]
+}

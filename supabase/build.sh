@@ -78,53 +78,8 @@ PY
 # ---------------------------------------------------------------------------
 # limpar_exemplo.sql
 # ---------------------------------------------------------------------------
-cat > dist/limpar_exemplo.sql <<'SQL'
--- Prodio · remove os dados de exemplo da Eddias e mantém a empresa, usuários, aparelhos e operadores.
--- Use antes de importar os dados reais. O ledger é apagado junto porque os saldos vinham do exemplo.
-do $$
-declare t uuid;
-begin
-  select id into t from public.tenants where slug = 'eddias';
-  if t is null then raise notice 'empresa eddias não encontrada'; return; end if;
-  delete from public.notifications where tenant_id = t;
-  delete from public.inventory_items where tenant_id = t;
-  delete from public.inventory_sessions where tenant_id = t;
-  delete from public.product_prices where tenant_id = t;
-  delete from public.channels where tenant_id = t;
-  delete from public.integration_outbox where tenant_id = t;
-  delete from public.order_items where tenant_id = t;
-  delete from public.orders where tenant_id = t;
-  delete from public.audit_runs where tenant_id = t;
-  delete from public.hub_stock_snapshots where tenant_id = t;
-  delete from public.connector_status_map where tenant_id = t;
-  delete from public.sync_state where tenant_id = t;
-  delete from public.connector_credentials where tenant_id = t;
-  delete from public.connectors where tenant_id = t;
-  delete from public.receipt_items where tenant_id = t;
-  delete from public.receipts where tenant_id = t;
-  delete from public.nfe_po_links where tenant_id = t;
-  delete from public.nfe_inbound_items where tenant_id = t;
-  delete from public.nfe_inbound where tenant_id = t;
-  delete from public.purchase_order_items where tenant_id = t;
-  delete from public.purchase_orders where tenant_id = t;
-  delete from public.scan_events where tenant_id = t;
-  delete from public.labels where tenant_id = t;
-  delete from public.daily_plans where tenant_id = t;
-  delete from public.stock_balances where tenant_id = t;
-  alter table public.stock_moves disable trigger user;
-  delete from public.stock_moves where tenant_id = t;
-  alter table public.stock_moves enable trigger user;
-  delete from public.bom_lines where tenant_id = t;
-  delete from public.bom_versions where tenant_id = t;
-  delete from public.supplier_materials where tenant_id = t;
-  delete from public.materials where tenant_id = t;
-  delete from public.sku_aliases where tenant_id = t;
-  delete from public.products where tenant_id = t;
-  delete from public.suppliers where tenant_id = t;
-  update public.doc_counters set next_value = 1 where tenant_id = t;
-  raise notice 'dados de exemplo removidos; empresa, usuários, locais, unidades, perfis de etiqueta e operadores mantidos';
-end $$;
-SQL
+# A fonte é supabase/limpar_exemplo.sql (versionada e testada em tests/0016_limpar_exemplo.test.sql).
+cp limpar_exemplo.sql dist/limpar_exemplo.sql
 
 echo "gerado em supabase/dist/:"
 wc -l dist/schema.sql dist/dados_eddias.sql dist/limpar_exemplo.sql

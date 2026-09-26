@@ -81,9 +81,15 @@ begin
     'refresh_purchase_order_status(uuid)', 'on_receipt_move_reversed()', 'notify(uuid,text,text)', 'assert_service_role()', 'custom_access_token_hook(jsonb)',
     'audit_trigger()', 'set_updated_at()', 'forbid_change()', 'tenant_default_stage()',
     'worker_set_credentials(uuid,uuid,jsonb,text)', 'worker_get_credentials(uuid,text)', 'worker_upsert_orders(uuid,uuid,jsonb)', 'worker_claim_outbox(uuid,int)',
-    'worker_apply_outbox_result(bigint[],boolean,text)', 'worker_set_sync_state(uuid,jsonb,boolean,text)', 'worker_upsert_hub_stock(uuid,uuid,jsonb)', 'worker_record_audit(uuid,uuid,jsonb)'] loop
+    'worker_apply_outbox_result(bigint[],boolean,text)', 'worker_set_sync_state(uuid,jsonb,boolean,text)', 'worker_upsert_hub_stock(uuid,uuid,jsonb)', 'worker_record_audit(uuid,uuid,jsonb)',
+    -- importação do ES: só a import_catalog (admin) é pública; validação e seções são internas
+    'import_catalog_txt(jsonb,int)', 'import_catalog_num(jsonb,numeric,numeric,boolean)', 'import_catalog_chaves(jsonb,text[],text[])', 'import_catalog_sku(jsonb)',
+    'import_catalog_opc(jsonb,text,boolean)', 'import_catalog_calc(jsonb)', 'import_catalog_validate(jsonb)', 'import_catalog_linha(text,text,text,text,text[])',
+    'import_catalog_contagem(int,int,int,int)', 'import_catalog_suppliers(uuid,jsonb)', 'import_catalog_materials(uuid,jsonb)', 'import_catalog_products(uuid,jsonb)',
+    'import_catalog_links(uuid,jsonb)', 'import_catalog_boms(uuid,jsonb)'] loop
     if has_function_privilege('authenticated', ('public.' || f)::regprocedure, 'execute') then raise exception 'authenticated executa %', f; end if;
   end loop;
+  if not has_function_privilege('authenticated', 'public.import_catalog(uuid,jsonb,boolean)', 'execute') then raise exception 'import_catalog deveria ser executável'; end if;
 end $$;
 
 -- 6. Hook de token como supabase_auth_admin (papel do Auth): a RLS precisa deixar o hook ler memberships.

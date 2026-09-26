@@ -11,3 +11,6 @@ export * from './nfe'
 // nfeXml fica fora do barril de propósito: traz fast-xml-parser e só roda no servidor.
 // Importe por caminho: import { parseNfeXml } from '@prodio/core/nfeXml'
 export * from './precificacao'
+// Importação do backup do Eddias Suprimentos (ES): plano puro, sem dependência. Também por caminho:
+// import { planejarImportacaoES } from '@prodio/core/importacaoEs'
+export * from './importacaoEs'

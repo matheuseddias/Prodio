@@ -101,7 +101,9 @@ SQL
 
 PORTA="$(porta_livre "$API_PORT")"
 LOG="$(mktemp)"
-PGRST_DB_URI="$AUTH_URL" PGRST_DB_SCHEMAS=public PGRST_DB_ANON_ROLE=anon PGRST_JWT_SECRET="$JWT_SECRET" \
+# PGRST_DB_MAX_ROWS=1000: o teto do Supabase. Sem ele aqui, uma leitura que precisa paginar passaria no teste
+# e seria cortada em 1.000 linhas, sem erro, em produção.
+PGRST_DB_URI="$AUTH_URL" PGRST_DB_SCHEMAS=public PGRST_DB_ANON_ROLE=anon PGRST_JWT_SECRET="$JWT_SECRET" PGRST_DB_MAX_ROWS=1000 \
 PGRST_DB_EXTRA_SEARCH_PATH="public, extensions" PGRST_SERVER_HOST=127.0.0.1 PGRST_SERVER_PORT="$PORTA" \
   "$PGRST_BIN" >"$LOG" 2>&1 &
 PID=$!

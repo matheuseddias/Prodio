@@ -1,11 +1,13 @@
 // Repo contra o Supabase: leituras via from()/views com RLS, escritas críticas via RPC.
 // Módulos por assunto: leituras.ts, fatias.ts, escritasProducao.ts, escritasCadastros.ts, escritasSistema.ts.
+import type { PayloadImportacao, ResultadoImportacao } from '@prodio/core/importacaoEs'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Bom, Channel, Connector, Device, Label, Material, Member, NfeInbound, Product, PurchaseOrder, StockMove, Supplier, Tenant } from '../domain/types'
 import * as C from './escritasCadastros'
 import * as P from './escritasProducao'
 import * as S from './escritasSistema'
 import { carregarFatias, carregarTudo } from './fatias'
+import { importarCatalogo } from './importacaoCatalogo'
 import type { OpcoesBipe, OperadorInput, Parte, Patch, RegistroBipe, Repo, Retorno, Snapshot } from './repo'
 import { novosMapas, type Ctx } from './supabaseCtx'
 
@@ -124,5 +126,9 @@ export class SupabaseRepo implements Repo {
   }
   setPrecoVenda(productId: string, channelId: string, preco: number | undefined): Promise<Patch> {
     return S.setPrecoVenda(this.ctx, productId, channelId, preco)
+  }
+  async importarCatalogo(payload: PayloadImportacao, opts: { simular: boolean }): Promise<Retorno<ResultadoImportacao>> {
+    // Sem patch: o store relê o catálogo depois de gravar (uma falha na releitura não pode parecer falha na gravação).
+    return { valor: await importarCatalogo(this.ctx, payload, opts.simular), patch: {} }
   }
 }
