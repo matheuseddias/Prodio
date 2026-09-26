@@ -65,8 +65,18 @@ export const roboComProblema = (s: Situacao | null): boolean => s?.robo === 'mor
 
 const ONDE_LOGS = 'no painel da Cloudflare, em Workers & Pages › prodio-worker › Logs'
 const ONDE_CRON = 'no painel da Cloudflare, em Workers & Pages › prodio-worker › Settings › Trigger Events'
+/** Onde o worker diz por que parou antes dos conectores (sync.listar leva o código do banco). */
+const LOGS_DO_ROBO = 'sync.listar e cron.falha na aba Observability do prodio-worker'
 
 const SEM_MOTIVO = 'O worker não gravou o motivo. Use "Sincronizar agora" para tentar de novo e ver o erro na hora.'
+
+/**
+ * Prefixo do aviso que o cron grava em `ultimo_erro` quando nem a lista de conectores ele consegue
+ * ler (apps/worker/src/jobs/avisoListagem.ts). O worker não muda o status nesse caso, então sem o
+ * prefixo a tela leria "conectado + erro guardado" como falha já superada. Contrato preso em
+ * contrato.test.ts.
+ */
+export const PREFIXO_AVISO_CRON = 'cron:'
 
 /** Instante de `iso` em ms, ou null quando não há data aproveitável. */
 function instante(iso: string | undefined): number | null {
@@ -95,8 +105,16 @@ export function situacaoConector(c: Connector, agora: number = Date.now()): Situ
   // aparecia "Desconectado" um dia depois de ter sido conectado, sem explicação nenhuma.
   if (c.status === 'desconectado') return erro ? { tom: 'warn', titulo: 'O robô parou de sincronizar este conector', texto: erro } : null
 
+  // O cron não conseguiu nem listar os conectores (o incidente de 25/09/2026 foi isso, sem aviso
+  // nenhum). Manda mais que o status e que o diário do robô: é a única frase com o motivo.
+  const bruto = c.ultimoErro?.trim() ?? ''
+  if (bruto.toLowerCase().startsWith(PREFIXO_AVISO_CRON)) {
+    const motivo = bruto.slice(PREFIXO_AVISO_CRON.length).trim()
+    return { tom: 'erro', robo: 'parado', titulo: 'O robô não está rodando', texto: motivo ? comoFrase(motivo) : semRobo() }
+  }
+
   if (c.status === 'erro') {
-    if (/^outbox:/i.test(c.ultimoErro?.trim() ?? '')) return situacaoDoOutbox(c, erro, agora)
+    if (/^outbox:/i.test(bruto)) return situacaoDoOutbox(c, erro, agora)
     return { tom: 'erro', titulo: 'A última sincronização falhou', texto: erro || SEM_MOTIVO }
   }
 
@@ -169,7 +187,7 @@ function situacaoDoRobo(c: Connector, robo: RoboConector, agora: number): Situac
       tom: 'info',
       robo: 'aguardando',
       titulo: 'Conectado, o robô ainda não passou',
-      texto: `Nenhuma tentativa automática foi registrada até agora. O robô do Prodio passa a cada ${CICLO_CRON_MIN} minutos: se você acabou de conectar, espere um ciclo. Se já faz mais de ${limite} minutos, o agendamento do worker não está disparando: confira ${ONDE_CRON}. "Sincronizar agora" lê na hora.`,
+      texto: `Nenhuma tentativa automática foi registrada até agora. O robô do Prodio passa a cada ${CICLO_CRON_MIN} minutos: se você acabou de conectar, espere um ciclo. Se já faz mais de ${limite} minutos, o robô não está chegando a este conector: confira ${ONDE_CRON} e procure ${LOGS_DO_ROBO}. "Sincronizar agora" lê na hora.`,
     }
   }
 
@@ -239,6 +257,6 @@ function situacaoDoOutbox(c: Connector, erro: string, agora: number): Situacao {
 function semRobo(): string {
   return (
     `O agendamento do worker não está disparando, ou o worker cai antes de chegar a este conector. Enquanto isso, pedidos só entram pelo botão "Sincronizar agora". ` +
-    `Confira se o cron dispara ${ONDE_CRON}, e procure cron.inicio na aba Logs do mesmo worker.`
+    `Confira se o cron dispara ${ONDE_CRON}, e procure cron.inicio (o cron disparou) e ${LOGS_DO_ROBO} (por que parou antes dos conectores).`
   )
 }

@@ -2,23 +2,27 @@
 // página, e grava cada página (worker_upsert_orders) e o ponto de retomada antes de ler a próxima.
 // Erro de um conector não para os outros tenants.
 //
-// POR QUE PÁGINA POR PÁGINA (incidente de 25/09/2026): o robô passou 24 h sem gravar nada — nem
-// sucesso, nem falha — enquanto o botão "Sincronizar agora" funcionava. A rodada lia a janela
-// inteira (até 20 páginas) e só gravava pedidos e cursor NO FIM. Qualquer coisa que a matasse no
-// meio (o limite de 30 s do waitUntil depois que scheduled() devolvia, CPU do plano Free, uma
-// exceção, um fetch pendurado) jogava fora o trabalho todo, e a rodada seguinte recomeçava do mesmo
-// cursor nulo para morrer no mesmo ponto. Para sempre, em silêncio. Agora:
+// INCIDENTE DE 25/09/2026 (causa reproduzida em 26/09 contra PostgREST 12.2.3): o robô passou 24 h
+// sem gravar nada — nem sucesso, nem falha — enquanto o botão "Sincronizar agora" funcionava. A listagem de conectores
+// (Db.listarConectoresAtivos) pedia `tenants(slug, fuso)` em embed, o PostgREST respondia PGRST201
+// e o erro era engolido aqui com um log 'sync.listar': nenhum conector era tentado, logo nenhum
+// pulso e nenhum erro no cartão. O botão funcionava porque a rota dele lê o tenant numa consulta à
+// parte. Hoje a listagem não usa embed, e a falha dela deixa aviso no cartão (avisoListagem.ts).
+//
+// O resto abaixo é PREVENÇÃO, não foi a causa: rodada que morre no meio (CPU do plano, fetch
+// pendurado, exceção) não pode jogar fora o que leu nem recomeçar para sempre do mesmo ponto.
 //   • cada página vai para o banco e SÓ DEPOIS o cursor dela é gravado: morrer na página 4 faz a
 //     próxima rodada começar na 4 (o cursor nunca passa de um pedido não gravado);
 //   • cada rodada lê no máximo `paginas_por_rodada` páginas (connectors.config, padrão pequeno):
 //     rodadas curtas, e um atraso grande é drenado em várias rodadas de 5 minutos;
 //   • o pulso (sync_state.last_run_at) é gravado antes de tudo: rodada que morre deixa rastro.
 import type { Env } from '../env'
-import type { ConectorRow, Credenciais, Db, PedidoParaRpc } from '../db'
+import { camposDoErro, type ConectorRow, type Credenciais, type Db, type PedidoParaRpc } from '../db'
 import { montarConector } from '../conectores'
 import { mensagemDaFalhaDeSync, redigirSegredos } from '../conectores/mensagens'
 import type { Conector, Cursor, PaginaPedidos, PedidoNormalizado } from '../conectores/tipos'
 import { log, mensagemErro } from '../log'
+import { avisarFalhaDeListagem, limparAvisoDeListagem } from './avisoListagem'
 import { desativarSeSemCredenciais } from './semCredenciais'
 
 export interface ResumoSync {
@@ -178,10 +182,11 @@ export async function syncPedidos(env: Env, db: Db, montar: MontarConector = (ro
   try {
     conectores = await db.listarConectoresAtivos()
   } catch (e) {
-    // Sem a lista não há conector onde gravar rastro no banco. Fica o log, que agora é persistido
-    // pelo Workers Logs (wrangler.toml, [observability]) e aparece no painel da Cloudflare. Na
-    // tela, o sintoma é o pulso de todos os conectores parar de andar.
-    log('error', 'sync.listar', { erro: mensagemErro(e) })
+    // Foi exatamente aqui que o incidente de 25/09/2026 sumiu (ver o topo). O log leva o código do
+    // PostgREST (PGRST201, 42703…) e o motivo vai para o cartão de cada conector ativo, se ao menos
+    // a leitura mínima de connectors responder. Workers Logs: wrangler.toml, [observability].
+    log('error', 'sync.listar', { erro: mensagemErro(e), ...camposDoErro(e) })
+    await avisarFalhaDeListagem(db, e)
     return resumo
   }
   for (const row of conectores) {
@@ -189,6 +194,7 @@ export async function syncPedidos(env: Env, db: Db, montar: MontarConector = (ro
     // Contrato com a interface: sync_state.last_run_at = INÍCIO da última tentativa do robô.
     const inicio = new Date(agora()).toISOString()
     await pulsar(row, db, inicio)
+    await limparAvisoDeListagem(row, db)
     try {
       resumo.pedidos += (await sincronizarConector(row, db, montar)).pedidos
       resumo.ok++

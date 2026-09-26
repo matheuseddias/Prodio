@@ -72,24 +72,15 @@ export async function rodarCron(expressao: string | undefined, env: Env): Promis
 
 // O que scheduled() faz: ESPERA o trabalho e só então devolve. Erro é capturado e logado aqui.
 //
-// POR QUE NÃO É MAIS `ctx.waitUntil(...)` E RETORNA NA HORA (incidente de 25/09/2026): o cron
-// ficou 24 h sem gravar nada no banco enquanto o botão "Sincronizar agora" funcionava. Com o
-// handler devolvendo na hora, a invocação "termina" no primeiro milissegundo e o trabalho passa a
-// viver só do waitUntil, que a Cloudflare corta 30 s depois do fim da invocação ("waitUntil has a
-// 30-second time limit after invocation end" — developers.cloudflare.com/workers/runtime-apis/
-// context/). A leitura da janela inteira (até 20 páginas a 650 ms uma da outra, mais o upsert)
-// passa disso com facilidade, e o cancelamento não passa por catch nenhum: nada gravado, nem
-// sucesso nem erro. É a explicação que bate com tudo o que se viu — o botão funcionava porque
-// segurava a requisição por 20 s antes de cair no waitUntil (20 s + 30 s) —, mas o incidente não
-// deixou log para confirmar; por isso os logs agora são persistidos (wrangler.toml, [observability]).
-// Os outros suspeitos (CPU do plano Free, fetch pendurado) estão tratados em jobs/syncPedidos.ts e
-// http.ts.
-// A documentação do handler diz o contrário do que fazíamos: "The runtime waits for the promise
-// returned by the scheduled() handler to resolve (up to the 15-minute duration limit). You do not
-// need to use waitUntil() for the runtime to wait for a single asynchronous task."
-// (developers.cloudflare.com/workers/runtime-apis/handlers/scheduled/). O CPU continua limitado
-// (10 ms no Free, 30 s no pago para crons de 5 min); isso é tratado em jobs/syncPedidos.ts com
-// rodadas curtas e progresso gravado página a página.
+// Antes era `ctx.waitUntil(...)` com retorno imediato. A documentação do handler diz que isso não é
+// preciso: "The runtime waits for the promise returned by the scheduled() handler to resolve (up to
+// the 15-minute duration limit)" (developers.cloudflare.com/workers/runtime-apis/handlers/scheduled/),
+// e o waitUntil tem limite próprio depois do fim da invocação. Devolver a promessa é PREVENÇÃO.
+// NÃO foi a causa do incidente de 25/09/2026 (24 h de cron sem gravar nada enquanto o botão
+// funcionava): a causa, reproduzida contra PostgREST 12.2.3, é o PGRST201 em
+// Db.listarConectoresAtivos, engolido com um log 'sync.listar' (ver jobs/syncPedidos.ts). O CPU
+// continua limitado (10 ms no Free, 30 s no pago para crons de 5 min); isso é tratado em
+// jobs/syncPedidos.ts com rodadas curtas.
 export async function executarCron(expressao: string | undefined, env: Env, rodar: typeof rodarCron = rodarCron): Promise<void> {
   try {
     await rodar(expressao, env)

@@ -1,6 +1,7 @@
-// scheduled() tem de DEVOLVER a promessa do trabalho (incidente de 25/09/2026): com
-// ctx.waitUntil + retorno imediato, a Cloudflare corta o trabalho 30 s depois do fim da invocação,
-// e o corte não passa por catch nenhum — o robô morria sem gravar nada no banco.
+// scheduled() DEVOLVE a promessa do trabalho em vez de ctx.waitUntil + retorno imediato: a
+// documentação diz que o runtime espera essa promessa, e o waitUntil tem limite próprio depois do
+// fim da invocação. É prevenção; a causa do incidente de 25/09/2026 foi o PGRST201 da listagem de
+// conectores (ver o comentário de executarCron em index.ts).
 import worker, { executarCron } from './index'
 import type { Env } from './env'
 import { silenciarLog } from './log'

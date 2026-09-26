@@ -2,7 +2,7 @@
 // -> worker_apply_outbox_result. Freio: na primeira falha do conector, o item falho vai a 'erro' e o restante
 // do lote volta a 'pendente' para a próxima rodada.
 import type { Env } from '../env'
-import type { ConectorRow, Db, LoteOutbox } from '../db'
+import { camposDoErro, type ConectorRow, type Db, type LoteOutbox } from '../db'
 import { montarConector } from '../conectores'
 import { redigirSegredos } from '../conectores/mensagens'
 import { ehUnsupported, type ResultadoPush } from '../conectores/tipos'
@@ -105,7 +105,8 @@ export async function aplicarOutbox(env: Env, db: Db, montar: MontarConector = (
   try {
     conectores = await db.listarConectoresAtivos()
   } catch (e) {
-    log('error', 'outbox.listar', { erro: mensagemErro(e) })
+    // O aviso no cartão é do sync (mesma rodada, mesma listagem); aqui fica o log com o código.
+    log('error', 'outbox.listar', { erro: mensagemErro(e), ...camposDoErro(e) })
     return resumo
   }
   for (const row of conectores) {

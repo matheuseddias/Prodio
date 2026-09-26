@@ -19,6 +19,7 @@ import { describe, expect, it } from 'vitest'
 import { CAPACIDADES, DECLARADO_SEM_USO, SEM_CAPACIDADE, type Capacidade } from '../../data/mapeadoresConectores'
 import { CAMPOS, OAUTH, TEM_ADAPTADOR, separar } from './ConectorCampos'
 import { STATUS_PLATAFORMA, STATUS_SO_POR_CODIGO, type Plataforma } from './ConectorMeta'
+import { PREFIXO_AVISO_CRON } from './ConectorSituacao'
 
 const RAIZ = fileURLToPath(new URL('../../../../..', import.meta.url))
 const ler = (rel: string): string => readFileSync(`${RAIZ}${rel}`, 'utf8')
@@ -264,5 +265,16 @@ describe('De-Para de status', () => {
     expect(fonte).toMatch(/status:\s*String\(p\.order_status_id\)/)
     expect(STATUS_SO_POR_CODIGO).toContain('baselinker')
     expect(STATUS_PLATAFORMA.baselinker.every((s) => !/^\d+$/.test(s.nome))).toBe(true)
+  })
+})
+
+// O cron que não consegue listar os conectores grava o motivo em `ultimo_erro` com um prefixo e
+// SEM mudar o status. Se os dois lados divergirem, o cartão mostra "a conexão voltou" no lugar de
+// "o robô não está rodando" — o silêncio do incidente de 25/09/2026 de volta.
+describe('contrato: aviso do cron em ultimo_erro', () => {
+  it('o prefixo que o worker grava é o que a tela reconhece', () => {
+    const fonte = ler('apps/worker/src/jobs/avisoListagem.ts')
+    const m = /export const PREFIXO_AVISO_CRON = '([^']+)'/.exec(fonte)
+    expect(m?.[1], 'PREFIXO_AVISO_CRON sumiu de avisoListagem.ts').toBe(PREFIXO_AVISO_CRON)
   })
 })

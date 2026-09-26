@@ -1,4 +1,5 @@
-// O robô nunca mais pode entrar em ciclo de morte (incidente de 25/09/2026). Estes testes rodam o
+// O robô não pode entrar em ciclo de morte: rodada que morre no meio não perde o que leu nem
+// recomeça sempre do mesmo ponto (prevenção; ver o topo de syncPedidos.ts). Estes testes rodam o
 // job de verdade (syncPedidos + sincronizarConector) contra o adaptador de verdade do BaseLinker,
 // falando com um BaseLinker de mentira que pagina como a API documenta, e um banco de mentira que
 // guarda cursor, pulso e pedidos como o Supabase guardaria.

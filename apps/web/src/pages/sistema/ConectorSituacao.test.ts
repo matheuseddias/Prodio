@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import { CAPACIDADES } from '../../data/mapeadoresConectores'
 import type { Connector, RoboConector } from '../../domain/types'
-import { CICLOS_ATE_DESCONFIAR, CICLOS_SEM_PULSO, CICLO_CRON_MIN, MINUTOS_RODADA, roboComProblema, situacaoConector } from './ConectorSituacao'
+import { CICLOS_ATE_DESCONFIAR, CICLOS_SEM_PULSO, CICLO_CRON_MIN, MINUTOS_RODADA, PREFIXO_AVISO_CRON, roboComProblema, situacaoConector } from './ConectorSituacao'
 
 const AGORA = Date.now()
 const minAtras = (min: number) => new Date(AGORA - min * 60_000).toISOString()
@@ -146,6 +146,10 @@ describe('situação do robô (sync_state)', () => {
     expect(s?.texto).toContain('há 1 d')
     expect(s?.texto).toContain('Trigger Events')
     expect(s?.texto).toContain('Sincronizar agora')
+    // O motivo do incidente estava no log 'sync.listar' e ninguém sabia onde procurar.
+    expect(s?.texto).toContain('sync.listar')
+    expect(s?.texto).toContain('cron.falha')
+    expect(s?.texto).toContain('Observability')
     expect(roboComProblema(s)).toBe(true)
     // O limite é o limite: dentro dele, uma tentativa que terminou bem ainda é robô em dia.
     const dentro = situacaoConector(comRobo({ ultimaTentativa: minAtras(limite - 1), ultimoOk: minAtras(limite - 1), rodadas: 40 }), AGORA)
@@ -187,6 +191,28 @@ describe('situação do robô (sync_state)', () => {
     expect(semLeitura?.titulo).toBe('O envio de estoque para a plataforma falhou')
     expect(semLeitura?.texto).not.toContain('continuam entrando')
     expect(situacaoConector(conector({ status: 'erro', ultimoErro: 'outbox: x' }), AGORA)?.texto).not.toContain('continuam entrando')
+  })
+
+  // O cron não conseguiu ler a lista de conectores (apps/worker/src/jobs/avisoListagem.ts). Ele grava
+  // só `ultimo_erro`, com o prefixo, e não mexe no status (em 'erro', o estoque produzido deixaria
+  // de ser enfileirado). Sem o prefixo, "conectado + erro guardado" viraria "a conexão voltou".
+  it('aviso do cron que não lista os conectores: "O robô não está rodando", com o código', () => {
+    const aviso = `${PREFIXO_AVISO_CRON} o robô não conseguiu ler a lista de conectores no banco (código PGRST201) e não sincronizou nenhum deles. Até isso ser corrigido, os pedidos só entram pelo botão "Sincronizar agora". O detalhe está nos logs do worker, evento sync.listar`
+    const velho = { ultimaTentativa: minAtras(60 * 24), ultimoOk: minAtras(60 * 24), rodadas: 40 }
+    for (const status of ['conectado', 'erro'] as const) {
+      const s = situacaoConector(comRobo(velho, { status, ultimoErro: aviso, ultimoSync: minAtras(1) }), AGORA)
+      expect(s).toMatchObject({ tom: 'erro', robo: 'parado', titulo: 'O robô não está rodando' })
+      expect(s?.texto).toMatch(/^O robô não conseguiu ler a lista de conectores/)
+      expect(s?.texto).toContain('(código PGRST201)')
+      expect(s?.texto).toContain('Sincronizar agora')
+      expect(s?.texto).not.toContain(PREFIXO_AVISO_CRON)
+      expect(roboComProblema(s)).toBe(true)
+    }
+    // Sem sync_state lido (modo de demonstração) vale o mesmo, e prefixo sem frase não vira silêncio.
+    expect(situacaoConector(conector({ ultimoErro: aviso }), AGORA)?.titulo).toBe('O robô não está rodando')
+    expect(situacaoConector(conector({ ultimoErro: 'CRON:' }), AGORA)?.texto).toContain('sync.listar')
+    // Conector desconectado não é tocado pelo cron.
+    expect(situacaoConector(conector({ status: 'desconectado', ultimoErro: aviso }), AGORA)?.robo).toBeUndefined()
   })
 
   it('desconectado não ganha diagnóstico de robô (o robô nem olha para ele)', () => {

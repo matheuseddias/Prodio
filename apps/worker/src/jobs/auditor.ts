@@ -1,7 +1,7 @@
 // Cron diário: lê o saldo de acabado no hub para todos os produtos, grava hub_stock_snapshots e compara
 // com o esperado (snapshot anterior + bipes do dia). Divergências vão para audit_runs via worker_record_audit.
 import type { Env } from '../env'
-import type { ConectorRow, Db } from '../db'
+import { camposDoErro, type ConectorRow, type Db } from '../db'
 import { montarConector } from '../conectores'
 import { ehUnsupported, type SaldoHub } from '../conectores/tipos'
 import { log, mensagemErro } from '../log'
@@ -73,7 +73,8 @@ export async function auditor(env: Env, db: Db, montar: MontarConector = (row) =
   try {
     conectores = await db.listarConectoresAtivos()
   } catch (e) {
-    log('error', 'auditor.listar', { erro: mensagemErro(e) })
+    // Mesma listagem do sync, que roda a cada 5 min e já deixa o aviso no cartão; aqui fica o log.
+    log('error', 'auditor.listar', { erro: mensagemErro(e), ...camposDoErro(e) })
     return resumo
   }
   for (const row of conectores) {

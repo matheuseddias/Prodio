@@ -158,7 +158,7 @@ Com o worker no ar, conecte as plataformas em Configurações > Conectores. Só 
 
 ## 9. O robô de 5 minutos: como saber se está vivo
 
-O cron do worker (`*/5 * * * *`) lê os pedidos novos de cada conector conectado. Em 25/09/2026 ele passou um dia sem gravar nada — nem sucesso, nem erro — enquanto o botão "Sincronizar agora" funcionava: cada rodada tentava ler a janela inteira de uma vez, era cortada no meio pela Cloudflare e jogava fora tudo o que tinha lido. Desde então o robô:
+O cron do worker (`*/5 * * * *`) lê os pedidos novos de cada conector conectado. Em 25/09/2026 ele passou um dia sem gravar nada — nem sucesso, nem erro — enquanto o botão "Sincronizar agora" funcionava. Causa (reproduzida em 26/09 contra um PostgREST 12.2.3 com as migrations deste repositório; em produção, o log `sync.listar` daquele dia traz "Could not embed because more than one relationship was found"): a consulta que lista os conectores pedia o tenant junto (embed `tenants(slug, fuso)`), o PostgREST recusava com `PGRST201` e o worker só registrava `sync.listar` no log. Nenhum conector era tentado — nem pedidos, nem envio de estoque, nem o auditor da madrugada. A consulta foi trocada por duas simples, e uma falha dela agora aparece no cartão ("O robô não está rodando", com o código do erro). Além disso, por prevenção, o robô:
 
 - **grava o progresso a cada página** de pedidos (100 no BaseLinker): primeiro os pedidos, depois o ponto de onde continuar. Se uma rodada morrer na página 4, a próxima começa na 4, não na 1;
 - **lê poucas páginas por rodada** (`paginas_por_rodada`, padrão 2 = até 200 pedidos a cada 5 minutos). Um atraso grande — a primeira carga, ou um robô que ficou parado — é drenado sozinho em várias rodadas;
@@ -182,7 +182,7 @@ select c.nome, c.status, c.ultimo_erro,
 
 | O que aparece | O que quer dizer |
 |---|---|
-| `ultima_tentativa_do_robo` vazia ou com mais de 15 minutos | **O robô não está rodando.** Worker não publicado, cron desligado, ou o worker cai antes de chegar ao conector (segredo `SUPABASE_URL` ou `SUPABASE_SERVICE_KEY` errado). Veja os logs. |
+| `ultima_tentativa_do_robo` vazia ou com mais de 15 minutos | **O robô não está rodando.** Worker não publicado, cron desligado, ou o worker cai antes de chegar ao conector (segredo `SUPABASE_URL` ou `SUPABASE_SERVICE_KEY` errado, ou a lista de conectores não pôde ser lida: `ultimo_erro` começa com `cron:` e traz o código). Veja os logs (`sync.listar`, `cron.falha`). |
 | tentativa recente, `ultimo_sucesso_do_robo` bem mais antigo, `status` conectado e `ultimo_erro` vazio | **O robô roda e morre antes de terminar** (CPU ou tempo da Cloudflare). O cursor ainda anda página a página; se ele não mudar entre uma rodada e outra, baixe `paginas_por_rodada` para 1 e veja os logs. |
 | tentativa recente e `status` = erro | Falhou e disse por quê: o motivo está em `ultimo_erro`, o mesmo texto do cartão. |
 | `ultima_tentativa_do_robo` anterior a `ultimo_sucesso_do_robo` | Tudo certo: a última tentativa terminou bem. |
@@ -195,7 +195,7 @@ Workers & Pages > prodio-worker > aba **Logs** (ou **Observability**). Ficam 3 d
 
 - `cron.inicio` a cada 5 minutos: o cron está disparando;
 - `sync.ok` com `pedidos`, `paginas` e `emDia` (`false` = ainda drenando a fila, é normal na primeira carga);
-- `sync.falha`, `cron.falha`, `sync.listar`, `sync.pulso`: o motivo de uma falha;
+- `sync.falha`, `cron.falha`, `sync.listar`, `sync.pulso`: o motivo de uma falha. `sync.listar` (e `outbox.listar`, `auditor.listar`) traz `codigo`, `detalhes` e `dica` do PostgREST — `PGRST201` foi o do incidente;
 - execução com resultado `exceededCpu` ("Exceeded CPU Limit"): a rodada estourou o CPU do plano — baixe `paginas_por_rodada`;
 - `baselinker.segundoLotado`: mais de 100 pedidos confirmados no mesmo segundo. É o único caso em que o robô avança sem ler tudo daquele segundo (senão ficaria preso nele para sempre); se aparecer, avise.
 

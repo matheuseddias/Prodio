@@ -16,6 +16,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { Env } from './env'
 import type { Plataforma } from './conectores/tipos'
+import { log } from './log'
 
 export interface ConectorRow {
   id: string
@@ -24,6 +25,8 @@ export interface ConectorRow {
   nome: string
   status: 'conectado' | 'erro' | 'desconectado'
   config: Record<string, unknown>
+  // Lido pelo cron só para tirar o aviso de listagem do cartão (jobs/avisoListagem.ts).
+  ultimo_erro?: string | null
   tenants: { slug: string; fuso: string } | null
 }
 export interface SyncStateRow {
@@ -59,12 +62,61 @@ export interface SnapshotRow {
 }
 export type Credenciais = Record<string, unknown>
 
+// O que o PostgREST/Postgres devolve junto da mensagem (PostgrestError). É o `code` que separa
+// "a consulta está errada" (PGRST201, 42703…) de "o banco não respondeu" (sem código).
+// Os campos vêm como `unknown` porque o tipo do supabase-js promete texto e o PostgREST nem sempre
+// cumpre (ver comoTexto).
+interface ErroPostgrest {
+  message: string
+  code?: unknown
+  details?: unknown
+  hint?: unknown
+}
+
 export class ErroBanco extends Error {
-  constructor(operacao: string, detalhe: string) {
+  codigo: string | null
+  detalhes: string | null
+  dica: string | null
+  constructor(operacao: string, detalhe: string, extra: Omit<ErroPostgrest, 'message'> = {}) {
     super(`${operacao}: ${detalhe}`)
     this.name = 'ErroBanco'
+    this.codigo = comoTexto(extra.code)
+    this.detalhes = comoTexto(extra.details)
+    this.dica = comoTexto(extra.hint)
   }
 }
+
+// O PostgREST nem sempre manda texto: no PGRST201, `details` é a LISTA dos relacionamentos.
+function comoTexto(v: unknown): string | null {
+  if (v === null || v === undefined || v === '') return null
+  return typeof v === 'string' ? v : JSON.stringify(v)
+}
+
+// Código, detalhe e dica do PostgREST para o LOG (nunca para a tela). Descrevem a consulta —
+// tabela, relacionamento, coluna —, não a credencial: a chave de cifra vai como argumento de RPC e
+// o Postgres não a repete no erro. Cortados para caber numa linha do painel.
+export function camposDoErro(e: unknown): { codigo?: string; detalhes?: string; dica?: string } {
+  if (e instanceof ErroBanco) return camposPostgrest({ code: e.codigo, details: e.detalhes, hint: e.dica })
+  return {}
+}
+
+function camposPostgrest(e: Omit<ErroPostgrest, 'message'>): { codigo?: string; detalhes?: string; dica?: string } {
+  const campos: { codigo?: string; detalhes?: string; dica?: string } = {}
+  const [codigo, detalhes, dica] = [comoTexto(e.code), comoTexto(e.details), comoTexto(e.hint)]
+  if (codigo) campos.codigo = codigo.slice(0, 40)
+  if (detalhes) campos.detalhes = detalhes.slice(0, 1000) // o do PGRST201 lista os relacionamentos: ~700
+  if (dica) campos.dica = dica.slice(0, 400)
+  return campos
+}
+
+// Colunas de connectors que o worker lê. SEM embed (`tenants(slug, fuso)`), de propósito: ver
+// listarConectoresAtivos.
+const COLUNAS_CONECTOR = 'id, tenant_id, plataforma, nome, status, config, ultimo_erro'
+type LinhaConector = Omit<ConectorRow, 'tenants'>
+type TenantDoConector = NonNullable<ConectorRow['tenants']>
+// Ids por consulta de tenants. O filtro vai na URL (`id=in.(…)`, ~39 bytes por uuid codificado) e o
+// cron é multi-tenant: 100 ids dão ~4 KB, longe do limite de URL do gateway do Supabase.
+const TENANTS_POR_CONSULTA = 100
 
 const opcoesSemSessao = { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } }
 
@@ -80,8 +132,8 @@ export function criarClienteUsuario(env: Env, jwt: string): SupabaseClient {
   })
 }
 
-function checar<T>(operacao: string, r: { data: unknown; error: { message: string } | null }): T {
-  if (r.error) throw new ErroBanco(operacao, r.error.message)
+function checar<T>(operacao: string, r: { data: unknown; error: ErroPostgrest | null }): T {
+  if (r.error) throw new ErroBanco(operacao, r.error.message, r.error)
   return r.data as T
 }
 
@@ -98,17 +150,75 @@ export class Db {
     return checar<T>(nome, await this.sb.rpc(nome, args))
   }
 
+  // Duas consultas simples (connectors, depois tenants), e NUNCA embed do PostgREST. Até 26/09/2026
+  // isto era um select só com `tenants(slug, fuso)`, e o PostgREST respondia PGRST201 ("more than
+  // one relationship was found for 'connectors' and 'tenants'"): além da FK direta, connector_status_map
+  // e hub_stock_snapshots têm FK para as duas tabelas com as colunas dentro da PK, e ele as trata
+  // como junção muitos-para-muitos. O cron, o envio de estoque e o auditor não chegavam a conector
+  // nenhum. Hint `!fk` também não: prende a consulta ao nome gerado da FK, e renomeá-la derruba o
+  // cron. O teste semEmbed.test.ts reprova qualquer embed nos .select do worker.
   async listarConectoresAtivos(): Promise<ConectorRow[]> {
-    const r = await this.sb
-      .from('connectors')
-      .select('id, tenant_id, plataforma, nome, status, config, tenants(slug, fuso)')
-      .in('status', ['conectado', 'erro'])
-    return checar<ConectorRow[] | null>('listarConectoresAtivos', r) ?? []
+    const r = await this.sb.from('connectors').select(COLUNAS_CONECTOR).in('status', ['conectado', 'erro'])
+    const linhas = checar<LinhaConector[] | null>('listarConectoresAtivos', r) ?? []
+    if (linhas.length === 0) return []
+    const tenants = await this.tenantsPorId(linhas.map((l) => l.tenant_id))
+    return linhas.map((l) => ({ ...l, tenants: tenants.get(l.tenant_id) ?? null }))
   }
 
   async getConector(id: string): Promise<ConectorRow | null> {
-    const r = await this.sb.from('connectors').select('id, tenant_id, plataforma, nome, status, config, tenants(slug, fuso)').eq('id', id).maybeSingle()
-    return checar<ConectorRow | null>('getConector', r)
+    const r = await this.sb.from('connectors').select(COLUNAS_CONECTOR).eq('id', id).maybeSingle()
+    const linha = checar<LinhaConector | null>('getConector', r)
+    if (!linha) return null
+    const tenants = await this.tenantsPorId([linha.tenant_id])
+    return { ...linha, tenants: tenants.get(linha.tenant_id) ?? null }
+  }
+
+  // Tenant ausente (ou leitura que falhou) vira `tenants: null`, e o adaptador usa o fuso padrão
+  // (America/Sao_Paulo) — a mesma escolha da rota do botão (rotas/sincronizar.ts, lerTenantDoUsuario):
+  // parar o robô por causa do fuso seria pior do que a diferença de fuso. A falha fica no log.
+  // Em lotes (TENANTS_POR_CONSULTA): um lote que falha não apaga o fuso dos outros.
+  private async tenantsPorId(ids: string[]): Promise<Map<string, TenantDoConector>> {
+    const mapa = new Map<string, TenantDoConector>()
+    const distintos = [...new Set(ids)]
+    for (let i = 0; i < distintos.length; i += TENANTS_POR_CONSULTA) {
+      const lote = distintos.slice(i, i + TENANTS_POR_CONSULTA)
+      const r = await this.sb.from('tenants').select('id, slug, fuso').in('id', lote)
+      if (r.error) {
+        log('warn', 'db.tenants', { tenants: lote, erro: r.error.message, ...camposPostgrest(r.error) })
+        continue
+      }
+      for (const t of (r.data ?? []) as { id: string; slug: string; fuso: string }[]) mapa.set(t.id, { slug: t.slug, fuso: t.fuso })
+    }
+    return mapa
+  }
+
+  // Leitura mínima para o aviso de listagem (jobs/avisoListagem.ts): só o necessário para achar os
+  // cartões dos conectores ativos quando listarConectoresAtivos falhou. `ultimo_erro` vem para não
+  // regravar o mesmo aviso a cada 5 minutos (connectors_audit grava uma linha em audit_log por UPDATE).
+  async listarConectoresParaAviso(): Promise<{ id: string; tenant_id: string; status: string; ultimo_erro: string | null }[]> {
+    const r = await this.sb.from('connectors').select('id, tenant_id, status, ultimo_erro').in('status', ['conectado', 'erro'])
+    return checar<{ id: string; tenant_id: string; status: string; ultimo_erro: string | null }[] | null>('listarConectoresParaAviso', r) ?? []
+  }
+
+  // Grava SÓ ultimo_erro, sem mexer em status. Pôr 'erro' aqui teria efeito colateral: enqueue_outbox
+  // (migration 0004) só enfileira o estoque produzido para conector 'conectado', e o bipe feito
+  // enquanto o aviso estivesse no cartão nunca chegaria à plataforma. Também não toca em sync_state
+  // (o robô não tentou este conector) nem ressuscita 'desconectado'.
+  async avisarNoCartao(connectorId: string, tenantId: string, texto: string): Promise<void> {
+    const r = await this.sb
+      .from('connectors')
+      .update({ ultimo_erro: texto.slice(0, 500) })
+      .eq('id', connectorId)
+      .eq('tenant_id', tenantId)
+      .neq('status', 'desconectado')
+    checar('avisarNoCartao', r)
+  }
+
+  // A listagem voltou: tira o aviso, e SÓ ele (`like prefixo%`): um motivo gravado nesse meio-tempo
+  // pela rodada ou pelo botão fica. Status intacto, como em avisarNoCartao.
+  async limparAvisoNoCartao(connectorId: string, tenantId: string, prefixo: string): Promise<void> {
+    const r = await this.sb.from('connectors').update({ ultimo_erro: null }).eq('id', connectorId).eq('tenant_id', tenantId).like('ultimo_erro', `${prefixo}%`)
+    checar('limparAvisoNoCartao', r)
   }
 
   async tenantPorSlug(slug: string): Promise<{ id: string; slug: string; fuso: string } | null> {

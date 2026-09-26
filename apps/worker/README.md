@@ -109,10 +109,26 @@ pnpm deploy:worker
 
 - `*/5 * * * *` → `syncPedidos` (pedidos incrementais por `sync_state.cursor`, com sobreposição) e depois `aplicarOutbox`.
 
-`scheduled()` **devolve** a promessa do trabalho (`executarCron` em `src/index.ts`); não usa `ctx.waitUntil`. Com
-waitUntil e retorno imediato, a Cloudflare corta o trabalho 30 s depois do fim da invocação, sem passar por catch
-nenhum — foi assim que o robô passou 24 h sem gravar nada em 25/09/2026. O CPU por execução continua limitado (10 ms
-no Free, 30 s no pago), e por isso cada rodada é curta e grava o progresso aos pedaços:
+**Incidente de 25/09/2026 (causa reproduzida contra PostgREST 12.2.3 com as migrations deste repositório).** O robô
+passou 24 h sem gravar nada enquanto o botão "Sincronizar agora" funcionava. `Db.listarConectoresAtivos` pedia `tenants(slug, fuso)` em embed e o PostgREST respondia
+`PGRST201` (mais de um relacionamento entre `connectors` e `tenants`: `connector_status_map` e `hub_stock_snapshots`
+contam como junção). `syncPedidos` só logava `sync.listar` e voltava; `aplicarOutbox` e o `auditor` usam a mesma
+listagem e também nunca chegaram a conector nenhum, e `Db.getConector` (callback do OAuth, webhook do Bling) tinha o
+mesmo embed. Hoje:
+
+- **Nada de embed no worker.** Conector e tenant são lidos em duas consultas simples; tenant que não vem vira fuso
+  padrão (`America/Sao_Paulo`) com aviso `db.tenants` no log. `src/semEmbed.test.ts` reprova parênteses em qualquer
+  `.select` do worker (hint `!fk` também não: prende a consulta ao nome gerado da FK).
+- **Falha da listagem aparece no cartão.** O log `sync.listar` leva `codigo`/`detalhes`/`dica` do PostgREST, e uma
+  leitura mínima de `connectors` grava em `ultimo_erro` de cada conector ativo uma frase fixa com o código, prefixada
+  com `cron:` (a tela mostra "O robô não está rodando"). O status não muda: em `erro`, `enqueue_outbox` pararia de
+  enfileirar o estoque produzido. O aviso sai assim que a listagem volta: o cron o apaga logo depois do pulso,
+  antes de falar com a plataforma, para que uma rodada que morra no meio não deixe o motivo antigo na tela.
+
+`scheduled()` **devolve** a promessa do trabalho (`executarCron` em `src/index.ts`) em vez de `ctx.waitUntil` com
+retorno imediato: a documentação diz que o runtime espera essa promessa. É prevenção, não foi a causa. O CPU por
+execução continua limitado (10 ms no Free, 30 s no pago), e por isso cada rodada é curta e grava o progresso aos
+pedaços:
 
 - **Página por página.** Adaptador com `pullOrdersPagina` (hoje o BaseLinker) é lido uma página por vez: os pedidos
   vão para `worker_upsert_orders` e só depois o cursor daquela página é gravado em `sync_state` (`Db.gravarCursor`).

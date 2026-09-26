@@ -40,6 +40,10 @@ docs/         plano de fundação e arquitetura
 
 Testes de banco: `PGURL=postgres://... pnpm db:test` (Postgres 16; a CI faz isso automaticamente).
 
+Teste de API: `PGURL=postgres://... pnpm db:test:api` monta um banco descartável (`prodio_api_test`), sobe um PostgREST 12.2.3 local e roda contra ele todo `.from(…).select(…)` da web e do worker com tabela e colunas fixas (como `service_role` e como usuário; os dinâmicos são listados) e as escritas e RPCs do `Db` do worker. Existe porque o cron ficou 24 h mudo com um `PGRST201` que nenhum teste via: os outros não passam pelo PostgREST.
+Na primeira vez precisa de rede para baixar o PostgREST (Linux x64, sha256 conferido, fica em `~/.cache/prodio`); em outro sistema, instale-o e passe `POSTGREST_BIN`. Não entra em `pnpm test` nem em `pnpm db:test`.
+Rode antes de publicar qualquer mudança que mexa em consulta (`.from`/`.select`), no `Db` do worker ou em migration.
+
 ## Instalar num Supabase real
 
 Ver `docs/deploy.md`: gerar os arquivos com `bash supabase/build.sh`, aplicar o schema, criar a empresa, ligar o gatilho de token e a sessão anônima.
