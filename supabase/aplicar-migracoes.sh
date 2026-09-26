@@ -228,7 +228,20 @@ end \$\$;
 SQL
   : > "$TMP/depois.sql"
   if [[ "$MODO" == reaplicada ]]; then
+    # A impressão de antes e a de depois têm de ver a MESMA fotografia dos dados: em READ COMMITTED (o
+    # padrão) um pedido que o robô do worker grava no meio da reaplicação (cron de 5 min) entraria só na
+    # segunda e travaria a publicação acusando "reaplicar mudaria dados". REPEATABLE READ fixa a fotografia
+    # no primeiro comando da transação e continua enxergando o que a própria migration muda. Tem de ser a
+    # primeira instrução da transação.
+    { echo "set transaction isolation level repeatable read;"; cat "$TMP/antes.sql"; } > "$TMP/antes.rr" && mv "$TMP/antes.rr" "$TMP/antes.sql"
     echo "select set_config('prodio.impressao_antes', prodio_admin.impressao_dados(), true);" >> "$TMP/antes.sql"
+    # Só para o cenário de teste que prova o isolamento (supabase/tests/migracoes/producao.sh): pausa entre
+    # as duas impressões para outra sessão gravar no meio. Nunca é definido no GitHub Actions.
+    if [[ -n "${APLICADOR_PAUSA_TESTE:-}" ]]; then
+      [[ "$APLICADOR_PAUSA_TESTE" =~ ^[0-9]+$ ]] || falha "APLICADOR_PAUSA_TESTE tem de ser um número de segundos"
+      echo "select pg_sleep($APLICADOR_PAUSA_TESTE);" >> "$TMP/antes.sql"
+      APLICADOR_PAUSA_TESTE="" # uma pausa só, no primeiro arquivo reaplicado
+    fi
     cat >> "$TMP/depois.sql" <<'SQL'
 do $$ begin
   if prodio_admin.impressao_dados() is distinct from current_setting('prodio.impressao_antes', true) then

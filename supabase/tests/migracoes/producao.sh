@@ -56,6 +56,21 @@ espera_rc 1; espera_texto "reaplicar este arquivo mudaria dados"
 espera_sql "$MEXIDO" "select valor from prodio_admin.parametros where chave = 'reaplicar_verificando_ate'" "$ULTIMA_ANTES_DO_APLICADOR"
 ok "parou na 20260921000500 sem mudar nada; a execução seguinte continua verificando"
 
+cenario "robô gravando no meio da reaplicação: a conferência não acusa dado mudado (REPEATABLE READ)"
+ROBO="$(banco_como_producao robo)"
+# Uma tabela qualquer de public fora das migrations, como os pedidos que o cron do worker grava a cada 5 min.
+consulta "$ROBO" "create table public.robo_teste (id int)" >/dev/null
+( sleep 2; consulta "$ROBO" "insert into public.robo_teste values (1)" >/dev/null ) &
+ROBO_PID=$!
+export APLICADOR_PAUSA_TESTE=5 # pausa entre as duas impressões do primeiro arquivo reaplicado
+aplicador "$ROBO"
+unset APLICADOR_PAUSA_TESTE
+wait "$ROBO_PID" || falhou "a gravação concorrente falhou"
+espera_rc 0
+espera_sql "$ROBO" "select count(*) from public.robo_teste" 1
+espera_sql "$ROBO" "select count(*) from prodio_admin.migracoes where modo = 'reaplicada'" "$ANTIGAS"
+ok "a linha gravada no meio ficou, e as $ANTIGAS reaplicadas passaram na conferência"
+
 cenario "primeira execução com migration posterior ao aplicador (tabela nova e cadastro novo): entra normalmente"
 NOVA="$(banco_como_producao nova)"
 DIR_NOVA="$(copia_migracoes)"
